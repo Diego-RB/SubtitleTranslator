@@ -1,0 +1,15 @@
+{
+  "chat.tools.terminal.autoApprove": {
+    "dotnet new": true,
+    "dotnet sln": true,
+    "dotnet add": true,
+    "dotnet tool": true,
+    "dotnet ef": true,
+    "dotnet build": true,
+    "dotnet test": true,
+    "dotnet run": true,
+    "ConvertFrom-Json": true,
+    "Out-Null": true,
+    "git config": true
+  }
+}

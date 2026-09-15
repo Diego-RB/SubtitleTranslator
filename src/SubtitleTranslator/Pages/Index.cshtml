@@ -1,0 +1,15 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Subtitle Translator";
+}
+
+<div>
+    <h1 class="display-4">Subtitle Translator</h1>
+    <p>Orchestrator de tradução de legendas SRT.</p>
+    <ul>
+        <li>Jobs ativos: @Model.ActiveJobs</li>
+        <li>Jobs concluídos: @Model.CompletedJobs</li>
+        <li>Jobs com falha: @Model.FailedJobs</li>
+    </ul>
+</div>
