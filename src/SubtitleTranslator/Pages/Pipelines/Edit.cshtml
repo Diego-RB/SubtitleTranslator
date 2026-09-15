@@ -1,0 +1,6 @@
+@page
+@model SubtitleTranslator.Pages.Pipelines.EditModel
+@{ ViewData["Title"] = "Edit pipeline"; }
+<h1>Edit pipeline</h1>
+<form method="post"><div asp-validation-summary="ModelOnly" class="text-danger"></div><input asp-for="Input.Id" type="hidden" /><div class="mb-3"><label asp-for="Input.Name" class="form-label"></label><input asp-for="Input.Name" class="form-control" /><span asp-validation-for="Input.Name" class="text-danger"></span></div><div class="mb-3"><label asp-for="Input.Description" class="form-label"></label><textarea asp-for="Input.Description" class="form-control"></textarea></div><div class="form-check mb-3"><input asp-for="Input.Enabled" class="form-check-input" /><label asp-for="Input.Enabled" class="form-check-label"></label></div><button class="btn btn-primary" type="submit">Save</button> <a class="btn btn-secondary" asp-page="Index">Cancel</a></form>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

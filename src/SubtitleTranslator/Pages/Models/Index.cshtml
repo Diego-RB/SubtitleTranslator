@@ -1,0 +1,9 @@
+@page
+@model SubtitleTranslator.Pages.Models.IndexModel
+@{ ViewData["Title"] = "Models"; }
+<div class="d-flex justify-content-between align-items-center mb-3"><h1>Models</h1><a class="btn btn-primary" asp-page="Create">Create model</a></div>
+@if (Model.Message is not null) { <div class="alert alert-success">@Model.Message</div> }
+@if (Model.ErrorMessage is not null) { <div class="alert alert-danger">@Model.ErrorMessage</div> }
+<table class="table table-striped table-sm align-middle"><thead><tr><th>Provider</th><th>Name</th><th>Model ID</th><th>Enabled</th><th>Translation</th><th>Batch</th><th>Chunking</th><th>Actions</th></tr></thead><tbody>
+@foreach (var item in Model.Models) { <tr><td>@item.Provider?.Name</td><td>@item.Name</td><td>@item.ModelId</td><td>@(item.Enabled ? "Yes" : "No")</td><td>@(item.SupportsTranslation ? "Yes" : "No")</td><td>@(item.SupportsBatch ? "Yes" : "No")</td><td>@item.ChunkStrategy (@item.MaxChunkSubtitles / @item.MaxChunkTokens)</td><td class="text-nowrap"><a class="btn btn-sm btn-outline-primary" asp-page="Edit" asp-route-id="@item.Id">Edit</a> <form method="post" asp-page-handler="Toggle" asp-route-id="@item.Id" class="d-inline"><button class="btn btn-sm btn-outline-secondary" type="submit">@(item.Enabled ? "Disable" : "Enable")</button></form> <form method="post" asp-page-handler="Delete" asp-route-id="@item.Id" class="d-inline" onsubmit="return confirm('Delete this model?');"><button class="btn btn-sm btn-outline-danger" type="submit">Delete</button></form></td></tr> }
+</tbody></table>

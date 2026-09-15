@@ -1,0 +1,11 @@
+@page
+@model SubtitleTranslator.Pages.Pipelines.Steps.CreateModel
+@{ ViewData["Title"] = "Add pipeline step"; }
+<h1>Add step to @Model.Pipeline!.Name</h1>
+<form method="post"><div asp-validation-summary="ModelOnly" class="text-danger"></div><input asp-for="Input.PipelineId" type="hidden" />
+<div class="mb-3"><label asp-for="Input.ProviderId" class="form-label">Provider</label><select asp-for="Input.ProviderId" asp-items="@(new SelectList(Model.Providers, "Id", "Name"))" class="form-select"><option value="">Select provider</option></select><div class="form-text">The selected model must belong to this provider.</div></div>
+<div class="mb-3"><label asp-for="Input.ModelDefinitionId" class="form-label">Model</label><select asp-for="Input.ModelDefinitionId" asp-items="@(new SelectList(Model.Models, "Id", "Name"))" class="form-select"><option value="">Select model</option></select></div>
+<div class="mb-3"><label asp-for="Input.Order" class="form-label"></label><input asp-for="Input.Order" class="form-control" /><span asp-validation-for="Input.Order" class="text-danger"></span></div>
+<div class="form-check mb-3"><input asp-for="Input.Enabled" class="form-check-input" /><label asp-for="Input.Enabled" class="form-check-label"></label></div>
+<button class="btn btn-primary" type="submit">Save</button> <a class="btn btn-secondary" asp-page="Index" asp-route-pipelineId="@Model.Input.PipelineId">Cancel</a></form>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }

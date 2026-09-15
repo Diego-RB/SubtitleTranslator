@@ -96,6 +96,25 @@ OPENROUTER_API_KEY=sua-chave-aqui
 
 O arquivo `.env` local é ignorado pelo Git. Use um mecanismo seguro de secrets no ambiente de produção.
 
+## Configuração pela interface
+
+1. Inicie a aplicação.
+2. Abra a página **Providers**.
+3. Crie um provider e informe o `CredentialId` como nome da variável de ambiente.
+4. Crie um model associado ao provider.
+5. Configure a estratégia e os limites de chunking.
+6. Crie um pipeline.
+7. Adicione e ordene os pipeline steps usando os models configurados.
+8. Reinicie a aplicação para confirmar que a configuração permanece no SQLite.
+
+Exemplo seguro de variável de ambiente:
+
+```text
+OPENROUTER_API_KEY=<set-in-environment>
+```
+
+O banco armazena a configuração e apenas a referência da credencial; o segredo não é armazenado no SQLite.
+
 ## Princípios do projeto
 
 - configuração em vez de hardcode;

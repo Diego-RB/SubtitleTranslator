@@ -19,6 +19,10 @@ builder.Services.AddSingleton<SrtWriter>();
 builder.Services.AddSingleton<SrtValidator>();
 builder.Services.AddSingleton<SrtChunker>();
 builder.Services.AddScoped<IPipelineDefinitionService, PipelineDefinitionService>();
+builder.Services.AddScoped<ProviderConfigurationService>();
+builder.Services.AddScoped<ModelConfigurationService>();
+builder.Services.AddScoped<PipelineConfigurationService>();
+builder.Services.AddScoped<PipelineStepConfigurationService>();
 builder.Services.AddHttpClient<OllamaProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OllamaProvider>());
