@@ -4,6 +4,8 @@ namespace SubtitleTranslator.Application.Interfaces;
 
 public interface IBatchTranslationProvider
 {
+    string Name { get; }
+
     Task<BatchSubmissionResult> SubmitBatchAsync(
         ProviderConfiguration provider,
         ModelConfiguration model,

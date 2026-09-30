@@ -194,6 +194,7 @@ public sealed class AzureOpenAiProvider(
         {
             sourceLanguage = request.SourceLanguage,
             targetLanguage = request.TargetLanguage,
+            glossary = request.GlossaryJson,
             subtitles
         }, JsonOptions);
     }

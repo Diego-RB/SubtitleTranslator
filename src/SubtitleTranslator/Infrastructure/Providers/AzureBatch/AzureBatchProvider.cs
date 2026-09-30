@@ -18,6 +18,8 @@ public sealed class AzureBatchProvider(
     private const string BatchEndpoint = "/chat/completions";
     private const string CompletionWindow = "24h";
 
+    public string Name => "AzureOpenAi";
+
     public async Task<BatchSubmissionResult> SubmitBatchAsync(
         ProviderConfiguration provider,
         ModelConfiguration model,
@@ -243,6 +245,7 @@ public sealed class AzureBatchProvider(
                         {
                             sourceLanguage = item.SourceLanguage,
                             targetLanguage = item.TargetLanguage,
+                            glossary = item.GlossaryJson,
                             subtitles = item.Subtitles.Select(subtitle => new
                             {
                                 index = subtitle.Index,

@@ -11,6 +11,8 @@ public class TranslationJob
 
     public int? PipelineId { get; set; }
     public Pipeline? Pipeline { get; set; }
+    public int? PromptVersionId { get; set; }
+    public PromptVersion? PromptVersion { get; set; }
 
     public int TotalChunks { get; set; }
     public int CompletedChunks { get; set; }

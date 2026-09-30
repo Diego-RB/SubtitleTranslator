@@ -7,7 +7,8 @@ public sealed record BatchTranslationItem(
     string CustomId,
     IReadOnlyList<Subtitle> Subtitles,
     string SourceLanguage = "en",
-    string TargetLanguage = "pt-BR");
+    string TargetLanguage = "pt-BR",
+    string? GlossaryJson = null);
 
 public sealed record BatchSubmissionResult(
     string BatchId,

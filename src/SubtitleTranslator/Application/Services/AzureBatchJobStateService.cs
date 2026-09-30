@@ -14,13 +14,18 @@ public sealed class AzureBatchJobStateService(SubtitleTranslatorDbContext db)
         CancellationToken cancellationToken = default)
     {
         var job = await GetJobAsync(jobId, cancellationToken);
-        if (!string.IsNullOrWhiteSpace(job.AzureBatchId))
+        if (!string.IsNullOrWhiteSpace(job.AzureBatchId)
+            && !IsTerminal(job.AzureBatchStatus))
         {
             throw new InvalidOperationException($"Job {jobId} already has Azure Batch '{job.AzureBatchId}'.");
         }
 
         job.AzureBatchId = submission.BatchId;
         job.AzureBatchInputFileId = submission.InputFileId;
+        job.AzureBatchOutputFileId = null;
+        job.AzureBatchErrorFileId = null;
+        job.AzureBatchInProgressAt = null;
+        job.AzureBatchCompletedAt = null;
         job.AzureBatchStatus = submission.Status;
         job.AzureBatchCreatedAt = submission.CreatedAt;
         job.AzureBatchExpiresAt = submission.ExpiresAt;
@@ -88,6 +93,14 @@ public sealed class AzureBatchJobStateService(SubtitleTranslatorDbContext db)
             "cancelled" or "canceled" => JobStatus.Cancelled,
             _ => current
         };
+
+    private static bool IsTerminal(string? status) =>
+        status is not null
+        && (status.Equals("completed", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("failed", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("expired", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
+            || status.Equals("canceled", StringComparison.OrdinalIgnoreCase));
 
     private static void Touch(TranslationJob job, DateTimeOffset at)
     {

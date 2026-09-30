@@ -62,6 +62,11 @@ public class SubtitleTranslatorDbContext(DbContextOptions<SubtitleTranslatorDbCo
                 .WithMany()
                 .HasForeignKey(j => j.PipelineId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(j => j.PromptVersion)
+                .WithMany()
+                .HasForeignKey(j => j.PromptVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<TranslationChunk>(entity =>

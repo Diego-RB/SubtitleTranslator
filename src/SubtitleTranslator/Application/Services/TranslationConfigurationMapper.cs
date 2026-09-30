@@ -28,5 +28,6 @@ public static class TranslationConfigurationMapper
             model.ChunkStrategy.ToString(),
             model.MaxChunkTokens,
             model.MaxChunkSubtitles,
-            model.ConfigurationJson);
+            model.ConfigurationJson,
+            model.SupportsBatch);
 }

@@ -9,6 +9,7 @@ public class TranslationAttempt
     public int AttemptNumber { get; set; }
     public required string Provider { get; set; }
     public required string Model { get; set; }
+    public string? AzureBatchId { get; set; }
 
     public bool Success { get; set; }
     public string? ErrorCode { get; set; }

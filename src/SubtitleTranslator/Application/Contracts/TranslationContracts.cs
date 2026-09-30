@@ -23,7 +23,8 @@ public sealed record ModelConfiguration(
     string ChunkStrategy,
     int? MaxChunkTokens,
     int? MaxChunkSubtitles,
-    string? ConfigurationJson);
+    string? ConfigurationJson,
+    bool SupportsBatch = false);
 
 public sealed record TranslationRequest
 {
@@ -31,6 +32,7 @@ public sealed record TranslationRequest
     public required ModelConfiguration Model { get; init; }
     public required IReadOnlyList<Subtitle> Subtitles { get; init; }
     public string? Prompt { get; init; }
+    public string? GlossaryJson { get; init; }
     public string SourceLanguage { get; init; } = "en";
     public string TargetLanguage { get; init; } = "pt-BR";
 }

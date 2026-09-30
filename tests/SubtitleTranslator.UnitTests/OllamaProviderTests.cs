@@ -34,7 +34,10 @@ public class OllamaProviderTests
         Assert.Equal("http://ollama.test/api/generate", capturedRequest.RequestUri!.ToString());
         var body = await capturedRequest.Content!.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("qwen2.5:7b", body.GetProperty("model").GetString());
-        Assert.Equal("translate the subtitles", body.GetProperty("prompt").GetString());
+        var prompt = body.GetProperty("prompt").GetString();
+        Assert.Contains("translate the subtitles", prompt);
+        Assert.Contains("Hello", prompt);
+        Assert.Contains("World", prompt);
         Assert.False(body.GetProperty("stream").GetBoolean());
         Assert.Equal(12, result.Usage.InputTokens);
         Assert.Equal(8, result.Usage.OutputTokens);

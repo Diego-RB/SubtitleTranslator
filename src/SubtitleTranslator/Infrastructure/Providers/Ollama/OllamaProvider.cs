@@ -42,7 +42,7 @@ public sealed class OllamaProvider(
             var endpoint = BuildEndpoint(request.Provider.BaseUrl!);
             var payload = new OllamaGenerateRequest(
                 request.Model.ModelId,
-                request.Prompt!,
+                BuildPrompt(request),
                 Stream: false,
                 new OllamaGenerateOptions(
                     options.Temperature ?? request.Model.Temperature,
@@ -135,6 +135,18 @@ public sealed class OllamaProvider(
         return normalized.EndsWith("/api/generate", StringComparison.OrdinalIgnoreCase)
             ? normalized
             : $"{normalized}/api/generate";
+    }
+
+    private static string BuildPrompt(TranslationRequest request)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            sourceLanguage = request.SourceLanguage,
+            targetLanguage = request.TargetLanguage,
+            glossary = request.GlossaryJson,
+            subtitles = request.Subtitles.Select(subtitle => new { index = subtitle.Index, text = subtitle.Text })
+        }, JsonOptions);
+        return $"{request.Prompt!.Trim()}\n\n{payload}";
     }
 
     private static IReadOnlyList<Subtitle> ParseTranslatedSubtitles(

@@ -117,7 +117,20 @@ O banco armazena a configuração e apenas a referência da credencial; o segred
 
 Para Azure OpenAI síncrono, configure o provider com o endpoint do recurso, a versão da API e o `CredentialId` como nome da variável de ambiente. O model deve informar o `DeploymentName`. Nesta fase, a autenticação Azure suporta API key por variável de ambiente; Managed Identity ainda não está implementada.
 
-Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. A aplicação envia JSONL UTF-8 sem BOM para `/openai/v1/files`, cria o batch em `/openai/v1/batches` e persiste no job o BatchId, file IDs, status, timestamps e contagens de requests. O contrato suporta consulta de status, download separado de output/errors e cancelamento. A submissão/polling automatizados pelo worker ainda são implementados nas fases posteriores.
+Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. A aplicação envia JSONL UTF-8 sem BOM para `/openai/v1/files`, cria o batch em `/openai/v1/batches` e persiste no job o BatchId, file IDs, status, timestamps e contagens de requests. O executor de pipeline submete e monitora o batch, recupera output/errors e respeita cancelamento. O worker ainda conectará o agendamento e recovery após reinício nas fases posteriores.
+
+O executor de pipeline usa o `PipelineId` e `PromptVersionId` associados ao job. Cada step usa seu próprio chunk policy; se um provider falhar, somente as legendas ainda não traduzidas avançam para os steps seguintes. A saída `.pt-BR.srt` é criada atomicamente somente após a validação completa. O executor e o ciclo síncrono de Batch já estão disponíveis por DI; agendamento, scanner e recovery após reinício serão conectados pelo worker nas fases posteriores.
+
+Retries síncronos adicionais são opt-in na configuração do model:
+
+```json
+{
+    "pipelineMaxAttempts": 2,
+    "pipelineRetryDelayMilliseconds": 1000
+}
+```
+
+O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativas, tokens, latência e custo estimado são registrados no SQLite por chunk. A versão do prompt é fixada no job para que uma retomada use o mesmo texto/glossário configurado.
 
 ## Princípios do projeto
 

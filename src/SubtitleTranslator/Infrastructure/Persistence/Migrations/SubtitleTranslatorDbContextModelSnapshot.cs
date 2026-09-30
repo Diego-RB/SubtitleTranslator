@@ -90,7 +90,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ProviderId");
 
-                    b.ToTable("Models");
+                    b.ToTable("Models", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.Pipeline", b =>
@@ -117,7 +117,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("Pipelines");
+                    b.ToTable("Pipelines", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.PipelineStep", b =>
@@ -144,7 +144,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PipelineId", "Order");
 
-                    b.ToTable("PipelineSteps");
+                    b.ToTable("PipelineSteps", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.PromptTemplate", b =>
@@ -165,7 +165,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
-                    b.ToTable("PromptTemplates");
+                    b.ToTable("PromptTemplates", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.PromptVersion", b =>
@@ -203,7 +203,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PromptTemplateId");
 
-                    b.ToTable("PromptVersions");
+                    b.ToTable("PromptVersions", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.Provider", b =>
@@ -247,7 +247,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("Providers");
+                    b.ToTable("Providers", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.TranslationAttempt", b =>
@@ -258,6 +258,9 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.Property<int>("AttemptNumber")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("AzureBatchId")
+                        .HasColumnType("TEXT");
 
                     b.Property<long?>("CacheWriteTokens")
                         .HasColumnType("INTEGER");
@@ -304,7 +307,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("ChunkId");
 
-                    b.ToTable("Attempts");
+                    b.ToTable("Attempts", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.TranslationChunk", b =>
@@ -363,7 +366,7 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("JobId");
 
-                    b.ToTable("Chunks");
+                    b.ToTable("Chunks", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.TranslationJob", b =>
@@ -456,6 +459,9 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
                     b.Property<int?>("PipelineId")
                         .HasColumnType("INTEGER");
 
+                    b.Property<int?>("PromptVersionId")
+                        .HasColumnType("INTEGER");
+
                     b.Property<int>("RetryCount")
                         .HasColumnType("INTEGER");
 
@@ -480,9 +486,11 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
 
                     b.HasIndex("PipelineId");
 
+                    b.HasIndex("PromptVersionId");
+
                     b.HasIndex("SourcePath");
 
-                    b.ToTable("Jobs");
+                    b.ToTable("Jobs", (string)null);
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.ModelDefinition", b =>
@@ -555,7 +563,14 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PipelineId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("SubtitleTranslator.Domain.Entities.PromptVersion", "PromptVersion")
+                        .WithMany()
+                        .HasForeignKey("PromptVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Pipeline");
+
+                    b.Navigation("PromptVersion");
                 });
 
             modelBuilder.Entity("SubtitleTranslator.Domain.Entities.Pipeline", b =>

@@ -6,6 +6,7 @@ public enum JobStatus
     Preparing,
     Queued,
     OpenRouterProcessing,
+    AzureOpenAiProcessing,
     AzureBatchSubmitting,
     AzureBatchProcessing,
     AzureBatchFinalizing,
