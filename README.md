@@ -117,6 +117,8 @@ O banco armazena a configuração e apenas a referência da credencial; o segred
 
 Para Azure OpenAI síncrono, configure o provider com o endpoint do recurso, a versão da API e o `CredentialId` como nome da variável de ambiente. O model deve informar o `DeploymentName`. Nesta fase, a autenticação Azure suporta API key por variável de ambiente; Managed Identity ainda não está implementada.
 
+Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. A aplicação envia JSONL UTF-8 sem BOM para `/openai/v1/files`, cria o batch em `/openai/v1/batches` e persiste no job o BatchId, file IDs, status, timestamps e contagens de requests. O contrato suporta consulta de status, download separado de output/errors e cancelamento. A submissão/polling automatizados pelo worker ainda são implementados nas fases posteriores.
+
 ## Princípios do projeto
 
 - configuração em vez de hardcode;

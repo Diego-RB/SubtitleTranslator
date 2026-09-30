@@ -19,6 +19,19 @@ public class TranslationJob
     public string? CurrentProvider { get; set; }
     public string? CurrentModel { get; set; }
     public string? AzureBatchId { get; set; }
+    public string? AzureBatchStatus { get; set; }
+    public string? AzureBatchInputFileId { get; set; }
+    public string? AzureBatchOutputFileId { get; set; }
+    public string? AzureBatchErrorFileId { get; set; }
+    public DateTimeOffset? AzureBatchCreatedAt { get; set; }
+    public DateTimeOffset? AzureBatchInProgressAt { get; set; }
+    public DateTimeOffset? AzureBatchExpiresAt { get; set; }
+    public DateTimeOffset? AzureBatchCompletedAt { get; set; }
+    public DateTimeOffset? AzureBatchLastPolledAt { get; set; }
+    public DateTimeOffset? AzureBatchLastProgressAt { get; set; }
+    public int? AzureBatchTotalRequests { get; set; }
+    public int? AzureBatchCompletedRequests { get; set; }
+    public int? AzureBatchFailedRequests { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? StartedAt { get; set; }

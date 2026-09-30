@@ -372,8 +372,47 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<DateTimeOffset?>("AzureBatchCompletedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AzureBatchCompletedRequests")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTimeOffset?>("AzureBatchCreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AzureBatchErrorFileId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("AzureBatchExpiresAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AzureBatchFailedRequests")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("AzureBatchId")
                         .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("AzureBatchInProgressAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AzureBatchInputFileId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("AzureBatchLastPolledAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("AzureBatchLastProgressAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AzureBatchOutputFileId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AzureBatchStatus")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("AzureBatchTotalRequests")
+                        .HasColumnType("INTEGER");
 
                     b.Property<DateTimeOffset?>("CompletedAt")
                         .HasColumnType("TEXT");

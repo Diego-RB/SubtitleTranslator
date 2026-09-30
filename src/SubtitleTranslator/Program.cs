@@ -3,6 +3,7 @@ using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Infrastructure.Persistence;
 using SubtitleTranslator.Infrastructure.Providers.AzureOpenAi;
+using SubtitleTranslator.Infrastructure.Providers.AzureBatch;
 using SubtitleTranslator.Infrastructure.Providers.OpenRouter;
 using SubtitleTranslator.Infrastructure.Providers.Ollama;
 using SubtitleTranslator.Infrastructure.Security;
@@ -24,6 +25,7 @@ builder.Services.AddScoped<ProviderConfigurationService>();
 builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
+builder.Services.AddScoped<AzureBatchJobStateService>();
 builder.Services.AddHttpClient<OllamaProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OllamaProvider>());
@@ -34,6 +36,9 @@ builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
 builder.Services.AddHttpClient<AzureOpenAiProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<AzureOpenAiProvider>());
+builder.Services.AddHttpClient<AzureBatchProvider>();
+builder.Services.AddSingleton<IBatchTranslationProvider>(serviceProvider =>
+    serviceProvider.GetRequiredService<AzureBatchProvider>());
 builder.Services.AddSingleton<ITranslationProviderFactory, TranslationProviderFactory>();
 
 var connectionString = builder.Configuration.GetConnectionString("Default")
