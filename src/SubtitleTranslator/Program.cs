@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Infrastructure.Persistence;
+using SubtitleTranslator.Infrastructure.Providers.AzureOpenAi;
 using SubtitleTranslator.Infrastructure.Providers.OpenRouter;
 using SubtitleTranslator.Infrastructure.Providers.Ollama;
 using SubtitleTranslator.Infrastructure.Security;
@@ -30,6 +31,9 @@ builder.Services.AddSingleton<ICredentialResolver, EnvironmentCredentialResolver
 builder.Services.AddHttpClient<OpenRouterProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OpenRouterProvider>());
+builder.Services.AddHttpClient<AzureOpenAiProvider>();
+builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
+    serviceProvider.GetRequiredService<AzureOpenAiProvider>());
 builder.Services.AddSingleton<ITranslationProviderFactory, TranslationProviderFactory>();
 
 var connectionString = builder.Configuration.GetConnectionString("Default")

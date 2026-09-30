@@ -115,6 +115,8 @@ OPENROUTER_API_KEY=<set-in-environment>
 
 O banco armazena a configuração e apenas a referência da credencial; o segredo não é armazenado no SQLite.
 
+Para Azure OpenAI síncrono, configure o provider com o endpoint do recurso, a versão da API e o `CredentialId` como nome da variável de ambiente. O model deve informar o `DeploymentName`. Nesta fase, a autenticação Azure suporta API key por variável de ambiente; Managed Identity ainda não está implementada.
+
 ## Princípios do projeto
 
 - configuração em vez de hardcode;
