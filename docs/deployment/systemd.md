@@ -43,7 +43,23 @@ Generate the two access tokens independently (for example, `openssl rand -hex 32
 
 Login POSTs are limited to five attempts per minute per client IP; logout is not counted. Forwarded client IPs are trusted only from loopback and explicitly configured proxy IPs. If a reverse proxy runs elsewhere (including a separate container), add its IP using `ReverseProxy__KnownProxies__0`; never trust arbitrary forwarded headers from untrusted clients.
 
-The service account needs read access to the configured subtitle directories and write access to the output locations. With the supplied hardening, application state writes are restricted to `/var/lib/subtitletranslator`. If media directories are private to another group, grant the service account read/traverse permissions using a dedicated group or ACL; do not make media writable by the service unless output generation requires it.
+The service account needs read access to the configured subtitle directories and write access to output locations. The app creates translated files beside their sources, including a temporary file before atomic rename. `ProtectSystem=strict` therefore grants write access to `/var/lib/subtitletranslator` and the default scanner directories `/media/streaming` and `/media/qbittorrent` only. The `-` prefix lets systemd ignore a default media path if that path does not exist on a particular host.
+
+If `Scanner__Directories__*` or manually submitted job paths use different directories, add each required output directory to the service's writable allow-list with a drop-in. For example:
+
+```sh
+sudo systemctl edit subtitletranslator
+```
+
+```ini
+[Service]
+ReadWritePaths=
+ReadWritePaths=/var/lib/subtitletranslator
+ReadWritePaths=/mnt/media/movies
+ReadWritePaths=/mnt/media/series
+```
+
+Then reload and restart the service. Grant the service account read/traverse access to sources and write access only where translated output must be created (use a dedicated group or ACL if needed).
 
 ## 4. Install and start the unit
 
