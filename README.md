@@ -19,7 +19,7 @@ O runtime inclui:
 
 A aplicação continua em desenvolvimento. Os probes periódicos verificam endpoint/autenticação; para Ollama também confirmam models instalados. Verificação de deployment Azure e contas individuais/auditoria de operadores continuam como limitações conhecidas.
 
-Em Development, o dashboard não exige autenticação por padrão; defina `Dashboard__AccessToken` para habilitá-la localmente. Em Production, `Dashboard__AccessToken` e `Metrics__AccessToken` são obrigatórios e devem ter pelo menos 32 caracteres. O primeiro protege as páginas com cookie HttpOnly de oito horas; o segundo protege `/metrics` via Bearer. Os health endpoints permanecem públicos para sondas de infraestrutura.
+Em Development, o dashboard não exige autenticação por padrão; defina `Dashboard__AccessToken` para habilitá-la localmente. Em Production, `Dashboard__AccessToken` e `Metrics__AccessToken` são obrigatórios e devem ter pelo menos 32 caracteres. O primeiro protege as páginas com cookie HttpOnly de oito horas; o segundo protege `/metrics` via Bearer. O endpoint de login aceita até cinco tentativas por IP confiável a cada minuto. Os health endpoints permanecem públicos para sondas de infraestrutura.
 
 ## Stack
 

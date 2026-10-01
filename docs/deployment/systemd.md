@@ -41,6 +41,8 @@ Do not put secret values in the unit file, SQLite database, source control, or c
 
 Generate the two access tokens independently (for example, `openssl rand -hex 32`) and replace both placeholders before starting the service. Production startup fails if either token is missing or shorter than 32 characters. The dashboard token is entered on `/Login` and creates an eight-hour HttpOnly/Secure cookie; the metrics token is sent as an HTTP Bearer credential. This is a single shared operator token, not per-user identity or audit logging.
 
+Login POSTs are limited to five attempts per minute per client IP; logout is not counted. Forwarded client IPs are trusted only from loopback and explicitly configured proxy IPs. If a reverse proxy runs elsewhere (including a separate container), add its IP using `ReverseProxy__KnownProxies__0`; never trust arbitrary forwarded headers from untrusted clients.
+
 The service account needs read access to the configured subtitle directories and write access to the output locations. With the supplied hardening, application state writes are restricted to `/var/lib/subtitletranslator`. If media directories are private to another group, grant the service account read/traverse permissions using a dedicated group or ACL; do not make media writable by the service unless output generation requires it.
 
 ## 4. Install and start the unit

@@ -1,6 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Net;
 using System.Net.Http.Headers;
+using System.Threading.RateLimiting;
 using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Infrastructure.Persistence;
@@ -55,6 +59,50 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.SlidingExpiration = true;
     });
 builder.Services.AddAuthorization();
+var trustedProxyAddresses = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+    foreach (var address in trustedProxyAddresses)
+    {
+        if (IPAddress.TryParse(address, out var proxyAddress))
+        {
+            options.KnownProxies.Add(proxyAddress);
+        }
+    }
+});
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        var isLoginAttempt = HttpMethods.IsPost(context.Request.Method)
+            && string.Equals(context.Request.Path.Value, "/Login", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(context.Request.Query["handler"], "Logout", StringComparison.OrdinalIgnoreCase);
+        if (!isLoginAttempt)
+        {
+            return RateLimitPartition.GetNoLimiter("unlimited");
+        }
+
+        var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        return RateLimitPartition.GetFixedWindowLimiter(partitionKey, _ => new FixedWindowRateLimiterOptions
+        {
+            AutoReplenishment = true,
+            PermitLimit = 5,
+            QueueLimit = 0,
+            Window = TimeSpan.FromMinutes(1)
+        });
+    });
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "60";
+        return ValueTask.CompletedTask;
+    };
+});
 builder.Services.AddSingleton<SrtParser>();
 builder.Services.AddSingleton<SrtWriter>();
 builder.Services.AddSingleton<SrtValidator>();
@@ -121,10 +169,12 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
+app.UseForwardedHeaders();
 app.UseHttpsRedirection();
 
 app.UseRouting();
 
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
