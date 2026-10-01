@@ -1,4 +1,6 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Net.Http.Headers;
 using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Infrastructure.Persistence;
@@ -16,8 +18,43 @@ using SubtitleTranslator.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
+var dashboardAccessToken = builder.Configuration["Dashboard:AccessToken"];
+var metricsAccessToken = builder.Configuration["Metrics:AccessToken"];
+if (!builder.Environment.IsDevelopment()
+    && (string.IsNullOrWhiteSpace(dashboardAccessToken) || dashboardAccessToken.Length < 32
+        || string.IsNullOrWhiteSpace(metricsAccessToken) || metricsAccessToken.Length < 32))
+{
+    throw new InvalidOperationException(
+        "Production requires Dashboard:AccessToken and Metrics:AccessToken, each at least 32 characters long. Configure them through environment variables or a secret store.");
+}
+
 // Add services to the container.
-builder.Services.AddRazorPages();
+var requireDashboardAuthentication = !builder.Environment.IsDevelopment()
+    || !string.IsNullOrWhiteSpace(dashboardAccessToken);
+builder.Services.AddRazorPages(options =>
+{
+    if (requireDashboardAuthentication)
+    {
+        options.Conventions.AuthorizeFolder("/");
+        options.Conventions.AllowAnonymousToPage("/Login");
+    }
+});
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Login";
+        options.AccessDeniedPath = "/Login";
+        options.Cookie.Name = ".SubtitleTranslator.Operator";
+        options.Cookie.HttpOnly = true;
+        options.Cookie.IsEssential = true;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.SecurePolicy = builder.Environment.IsDevelopment()
+            ? CookieSecurePolicy.SameAsRequest
+            : CookieSecurePolicy.Always;
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+    });
+builder.Services.AddAuthorization();
 builder.Services.AddSingleton<SrtParser>();
 builder.Services.AddSingleton<SrtWriter>();
 builder.Services.AddSingleton<SrtValidator>();
@@ -88,6 +125,7 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapStaticAssets();
@@ -102,9 +140,28 @@ app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.Health
 {
     Predicate = check => check.Tags.Contains("ready")
 });
-app.MapGet("/metrics", async (TranslationMetricsService metrics, CancellationToken cancellationToken) =>
-    Results.Text(
+app.MapGet("/metrics", async (
+    HttpRequest request,
+    IConfiguration configuration,
+    IWebHostEnvironment environment,
+    TranslationMetricsService metrics,
+    CancellationToken cancellationToken) =>
+{
+    var expectedToken = configuration["Metrics:AccessToken"];
+    if (!environment.IsDevelopment() || !string.IsNullOrWhiteSpace(expectedToken))
+    {
+        var authorization = request.Headers.Authorization.ToString();
+        if (!AuthenticationHeaderValue.TryParse(authorization, out var credentials)
+            || !string.Equals(credentials.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase)
+            || !DashboardAccessTokenValidator.IsValid(credentials.Parameter, expectedToken))
+        {
+            return Results.Unauthorized();
+        }
+    }
+
+    return Results.Text(
         await metrics.RenderPrometheusAsync(cancellationToken),
-        "text/plain; version=0.0.4; charset=utf-8"));
+        "text/plain; version=0.0.4; charset=utf-8");
+});
 
 app.Run();

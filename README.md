@@ -17,7 +17,9 @@ O runtime inclui:
 - dashboard Home, listagem filtrável de jobs e detalhes com chunks, tentativas, tokens, custos, erros e timeline;
 - health endpoints para liveness, readiness (SQLite) e status agregado.
 
-A aplicação continua em desenvolvimento. Os probes periódicos verificam endpoint/autenticação; para Ollama também confirmam models instalados. Verificação de deployment Azure, métricas exportáveis/alertas e autenticação da interface continuam como limitações conhecidas.
+A aplicação continua em desenvolvimento. Os probes periódicos verificam endpoint/autenticação; para Ollama também confirmam models instalados. Verificação de deployment Azure e contas individuais/auditoria de operadores continuam como limitações conhecidas.
+
+Em Development, o dashboard não exige autenticação por padrão; defina `Dashboard__AccessToken` para habilitá-la localmente. Em Production, `Dashboard__AccessToken` e `Metrics__AccessToken` são obrigatórios e devem ter pelo menos 32 caracteres. O primeiro protege as páginas com cookie HttpOnly de oito horas; o segundo protege `/metrics` via Bearer. Os health endpoints permanecem públicos para sondas de infraestrutura.
 
 ## Stack
 
@@ -76,8 +78,8 @@ http://localhost:5043/health/ready
 http://localhost:5043/metrics
 ```
 
-`/health/live` indica que o processo web está atendendo; `/health/ready` valida a conexão com SQLite. `/health` mantém o check agregado.
-`/metrics` expõe métricas agregadas em formato Prometheus, sem caminhos de arquivos, nomes de models ou credenciais. Mantenha o endpoint restrito à rede de monitoramento.
+`/health/live` indica que o processo web está atendendo; `/health/ready` valida a conexão com SQLite. `/health` mantém o check agregado. Esses endpoints permanecem públicos para probes de infraestrutura.
+`/metrics` expõe métricas agregadas em formato Prometheus e exige `Authorization: Bearer <token>` quando configurado; em Production, a configuração do token é obrigatória. A saída não contém caminhos de arquivos, nomes de models ou credenciais.
 
 Também é possível iniciar o projeto pelo VS Code usando a configuração `SubtitleTranslator: Debug` em `.vscode/launch.json`.
 
@@ -140,7 +142,7 @@ O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativa
 
 ## Executar em Linux com systemd
 
-Há um unit file e um guia de implantação em [`deploy/systemd/subtitletranslator.service`](deploy/systemd/subtitletranslator.service) e [`docs/deployment/systemd.md`](docs/deployment/systemd.md). O serviço usa `/var/lib/subtitletranslator` para o SQLite, escuta por padrão em `127.0.0.1:8080` e deve ficar atrás de um reverse proxy com TLS. Regras Prometheus estão em [`deploy/monitoring/subtitletranslator-alerts.yml`](deploy/monitoring/subtitletranslator-alerts.yml). O dashboard ainda não tem autenticação própria; restrinja o acesso na rede/proxy.
+Há um unit file e um guia de implantação em [`deploy/systemd/subtitletranslator.service`](deploy/systemd/subtitletranslator.service) e [`docs/deployment/systemd.md`](docs/deployment/systemd.md). O serviço usa `/var/lib/subtitletranslator` para o SQLite, escuta por padrão em `127.0.0.1:8080` e deve ficar atrás de um reverse proxy com TLS. Em Production, o dashboard exige um token de operador e `/metrics` exige um bearer token separado. Regras Prometheus estão em [`deploy/monitoring/subtitletranslator-alerts.yml`](deploy/monitoring/subtitletranslator-alerts.yml).
 
 Para execução local, o banco padrão é `subtitletranslator.db` relativo ao diretório de trabalho. Em produção, sobrescreva `ConnectionStrings__Default` com um caminho persistente gravável pelo usuário do serviço.
 
