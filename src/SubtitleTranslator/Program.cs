@@ -12,6 +12,7 @@ using SubtitleTranslator.Srt.Chunking;
 using SubtitleTranslator.Srt.Parser;
 using SubtitleTranslator.Srt.Validation;
 using SubtitleTranslator.Srt.Writer;
+using SubtitleTranslator.Workers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,8 +28,13 @@ builder.Services.AddScoped<ProviderConfigurationService>();
 builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
+builder.Services.AddScoped<OrchestratorSettingsService>();
 builder.Services.AddScoped<AzureBatchJobStateService>();
 builder.Services.AddScoped<TranslationPipelineExecutor>();
+builder.Services.AddScoped<SubtitleFileScanner>();
+builder.Services.AddScoped<TranslationRecoveryService>();
+builder.Services.Configure<ScannerOptions>(builder.Configuration.GetSection("Scanner"));
+builder.Services.AddHostedService<SubtitleTranslationWorker>();
 builder.Services.AddHttpClient<OllamaProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OllamaProvider>());
@@ -59,6 +65,8 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<SubtitleTranslatorDbContext>();
     db.Database.Migrate();
+    var orchestratorSettingsService = scope.ServiceProvider.GetRequiredService<OrchestratorSettingsService>();
+    await orchestratorSettingsService.EnsureDefaultsAsync();
 }
 
 // Configure the HTTP request pipeline.

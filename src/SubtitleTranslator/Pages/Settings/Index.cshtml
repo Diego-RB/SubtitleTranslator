@@ -1,0 +1,39 @@
+@page
+@model SubtitleTranslator.Pages.Settings.IndexModel
+@{
+    ViewData["Title"] = "Default Settings";
+}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <h1>Default settings</h1>
+</div>
+@if (Model.Message is not null)
+{
+    <div class="alert alert-success">@Model.Message</div>
+}
+@if (Model.ErrorMessage is not null)
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+<form method="post">
+    <div class="mb-3">
+        <label asp-for="Input.DefaultPipelineId" class="form-label">Default pipeline</label>
+        <select asp-for="Input.DefaultPipelineId" class="form-select">
+            <option value="">-- none --</option>
+            @foreach (var pipeline in Model.Pipelines)
+            {
+                <option value="@pipeline.Id" selected="@(Model.Input.DefaultPipelineId == pipeline.Id ? "selected" : null)">@pipeline.Name</option>
+            }
+        </select>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.DefaultPromptVersionId" class="form-label">Default prompt version</label>
+        <select asp-for="Input.DefaultPromptVersionId" class="form-select">
+            <option value="">-- none --</option>
+            @foreach (var version in Model.PromptVersions)
+            {
+                <option value="@version.Id" selected="@(Model.Input.DefaultPromptVersionId == version.Id ? "selected" : null)">@version.PromptTemplate?.Name v@version.Version @(!string.IsNullOrWhiteSpace(version.Name) ? $"- {version.Name}" : string.Empty)</option>
+            }
+        </select>
+    </div>
+    <button type="submit" class="btn btn-primary">Save defaults</button>
+</form>
