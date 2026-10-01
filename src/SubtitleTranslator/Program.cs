@@ -29,13 +29,17 @@ builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
 builder.Services.AddScoped<DashboardQueryService>();
+builder.Services.AddSingleton<ProviderHealthRegistry>();
+builder.Services.AddHttpClient<ProviderHealthCheckService>();
 builder.Services.AddScoped<OrchestratorSettingsService>();
 builder.Services.AddScoped<AzureBatchJobStateService>();
 builder.Services.AddScoped<TranslationPipelineExecutor>();
 builder.Services.AddScoped<SubtitleFileScanner>();
 builder.Services.AddScoped<TranslationRecoveryService>();
 builder.Services.Configure<ScannerOptions>(builder.Configuration.GetSection("Scanner"));
+builder.Services.Configure<ProviderHealthOptions>(builder.Configuration.GetSection("ProviderHealth"));
 builder.Services.AddHostedService<SubtitleTranslationWorker>();
+builder.Services.AddHostedService<ProviderHealthWorker>();
 builder.Services.AddHttpClient<OllamaProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OllamaProvider>());

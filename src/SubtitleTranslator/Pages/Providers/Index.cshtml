@@ -11,13 +11,15 @@
 @if (Model.Message is not null) { <div class="alert alert-success">@Model.Message</div> }
 @if (Model.ErrorMessage is not null) { <div class="alert alert-danger">@Model.ErrorMessage</div> }
 <table class="table table-striped align-middle">
-    <thead><tr><th>Name</th><th>Type</th><th>Base URL</th><th>Credential reference</th><th>Enabled</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Name</th><th>Type</th><th>Base URL</th><th>Credential reference</th><th>Enabled</th><th>Health</th><th>Actions</th></tr></thead>
     <tbody>
     @foreach (var provider in Model.Providers)
     {
+        var health = Model.HealthSnapshots[provider.Id];
         <tr>
             <td>@provider.Name</td><td>@provider.Type</td><td>@provider.BaseUrl</td><td>@provider.CredentialId</td>
             <td>@(provider.Enabled ? "Yes" : "No")</td>
+            <td><span class="badge @(health.State switch { SubtitleTranslator.Application.Services.ProviderHealthState.Online => "text-bg-success", SubtitleTranslator.Application.Services.ProviderHealthState.Offline => "text-bg-danger", SubtitleTranslator.Application.Services.ProviderHealthState.Degraded => "text-bg-warning", _ => "text-bg-secondary" })">@health.State.ToString().ToUpperInvariant()</span><div class="small text-muted">@health.Message</div>@if (health.CheckedAt is not null) { <div class="small text-muted">@health.CheckedAt.Value.ToLocalTime().ToString("g")</div> }</td>
             <td class="text-nowrap">
                 <a class="btn btn-sm btn-outline-primary" asp-page="Edit" asp-route-id="@provider.Id">Edit</a>
                 <form method="post" asp-page-handler="Toggle" asp-route-id="@provider.Id" class="d-inline"><button class="btn btn-sm btn-outline-secondary" type="submit">@(provider.Enabled ? "Disable" : "Enable")</button></form>

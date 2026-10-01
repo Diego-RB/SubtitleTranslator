@@ -47,7 +47,7 @@
     }
     @foreach (var provider in Model.Overview.Providers)
     {
-        <div class="col"><div class="card h-100"><div class="card-body d-flex justify-content-between gap-3"><div><h3 class="h6 mb-1">@provider.Name</h3><div class="small text-muted">@provider.Type · @provider.EnabledModelCount enabled model(s)</div></div><div class="text-end"><span class="badge @(provider.Enabled ? "text-bg-success" : "text-bg-secondary")">@(provider.Enabled ? "Enabled" : "Disabled")</span><div class="small text-muted mt-1">Health not checked</div></div></div></div></div>
+        <div class="col"><div class="card h-100"><div class="card-body d-flex justify-content-between gap-3"><div><h3 class="h6 mb-1">@provider.Name</h3><div class="small text-muted">@provider.Type · @provider.EnabledModelCount enabled model(s)</div><div class="small mt-2" title="@provider.HealthMessage">@provider.HealthMessage</div>@if (provider.HealthCheckedAt is not null) { <div class="small text-muted">Checked @provider.HealthCheckedAt.Value.ToLocalTime().ToString("g")</div> }</div><div class="text-end"><span class="badge @(provider.Enabled ? "text-bg-success" : "text-bg-secondary")">@(provider.Enabled ? "Enabled" : "Disabled")</span><div class="mt-2"><span class="badge @provider.HealthBadgeClass">@provider.HealthState.ToString().ToUpperInvariant()</span></div></div></div></div></div>
     }
 </div>
 </div>

@@ -17,7 +17,7 @@ O runtime inclui:
 - dashboard Home, listagem filtrável de jobs e detalhes com chunks, tentativas, tokens, custos, erros e timeline;
 - health endpoints para liveness, readiness (SQLite) e status agregado.
 
-A aplicação continua em desenvolvimento. Health checks ativos por provider, métricas exportáveis/alertas, autenticação da interface e alguns recursos de operação ainda são limitações conhecidas.
+A aplicação continua em desenvolvimento. Os probes periódicos verificam endpoint/autenticação; para Ollama também confirmam models instalados. Verificação de deployment Azure, métricas exportáveis/alertas e autenticação da interface continuam como limitações conhecidas.
 
 ## Stack
 

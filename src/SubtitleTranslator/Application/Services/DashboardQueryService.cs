@@ -5,7 +5,9 @@ using SubtitleTranslator.Infrastructure.Persistence;
 
 namespace SubtitleTranslator.Application.Services;
 
-public sealed class DashboardQueryService(SubtitleTranslatorDbContext db)
+public sealed class DashboardQueryService(
+    SubtitleTranslatorDbContext db,
+    ProviderHealthRegistry providerHealthRegistry)
 {
     private static readonly JobStatus[] TerminalStatuses =
     [
@@ -39,16 +41,31 @@ public sealed class DashboardQueryService(SubtitleTranslatorDbContext db)
                 job.AzureBatchLastProgressAt))
             .ToListAsync(cancellationToken);
 
-        var providers = await db.Providers
+        var providerData = await db.Providers
             .AsNoTracking()
             .OrderBy(provider => provider.Name)
-            .Select(provider => new DashboardProvider(
+            .Select(provider => new
+            {
                 provider.Id,
                 provider.Name,
                 provider.Type,
                 provider.Enabled,
-                provider.Models.Count(model => model.Enabled)))
+                EnabledModelCount = provider.Models.Count(model => model.Enabled)
+            })
             .ToListAsync(cancellationToken);
+        var providers = providerData.Select(provider =>
+        {
+            var health = providerHealthRegistry.Get(provider.Id);
+            return new DashboardProvider(
+                provider.Id,
+                provider.Name,
+                provider.Type,
+                provider.Enabled,
+                provider.EnabledModelCount,
+                health.State,
+                health.Message,
+                health.CheckedAt);
+        }).ToArray();
 
         var recentJobs = await db.Jobs
             .AsNoTracking()
@@ -185,7 +202,19 @@ public sealed record DashboardProvider(
     string Name,
     SubtitleTranslator.Domain.Enums.ProviderType Type,
     bool Enabled,
-    int EnabledModelCount);
+    int EnabledModelCount,
+    ProviderHealthState HealthState,
+    string HealthMessage,
+    DateTimeOffset? HealthCheckedAt)
+{
+    public string HealthBadgeClass => HealthState switch
+    {
+        ProviderHealthState.Online => "text-bg-success",
+        ProviderHealthState.Offline => "text-bg-danger",
+        ProviderHealthState.Degraded => "text-bg-warning",
+        _ => "text-bg-secondary"
+    };
+}
 
 public sealed record DashboardJobRow(
     int Id,

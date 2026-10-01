@@ -29,7 +29,7 @@ public class DashboardQueryServiceTests
             CreateJob("failed.srt", JobStatus.Failed, now.AddDays(-2)));
         await context.SaveChangesAsync();
 
-        var service = new DashboardQueryService(context);
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry());
         var overview = await service.GetOverviewAsync(TimeSpan.FromMinutes(10));
 
         Assert.True(overview.IsApplicationOnline);
@@ -55,7 +55,7 @@ public class DashboardQueryServiceTests
             CreateJob("/media/alpha-2.srt", JobStatus.Completed, now.AddMinutes(-2)));
         await context.SaveChangesAsync();
 
-        var service = new DashboardQueryService(context);
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry());
         var result = await service.GetJobsAsync("alpha", JobStatus.Completed, page: 1, pageSize: 1);
 
         Assert.Equal(2, result.TotalCount);
@@ -98,7 +98,7 @@ public class DashboardQueryServiceTests
         context.Jobs.Add(job);
         await context.SaveChangesAsync();
 
-        var loaded = await new DashboardQueryService(context).GetJobAsync(job.Id);
+        var loaded = await new DashboardQueryService(context, new ProviderHealthRegistry()).GetJobAsync(job.Id);
 
         Assert.NotNull(loaded);
         Assert.Equal("Default", loaded.Pipeline?.Name);
