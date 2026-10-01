@@ -1,23 +1,20 @@
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.EntityFrameworkCore;
-using SubtitleTranslator.Infrastructure.Persistence;
+using Microsoft.Extensions.Options;
+using SubtitleTranslator.Application.Services;
+using SubtitleTranslator.Workers;
 
 namespace SubtitleTranslator.Pages;
 
-public class IndexModel(SubtitleTranslatorDbContext db) : PageModel
+public class IndexModel(
+    DashboardQueryService dashboard,
+    IOptionsMonitor<ScannerOptions> scannerOptions) : PageModel
 {
-    public int ActiveJobs { get; set; }
-    public int CompletedJobs { get; set; }
-    public int FailedJobs { get; set; }
+    public DashboardOverview Overview { get; private set; } = new(
+        false, 0, 0, 0, 0, 0, [], []);
 
-    public async Task OnGetAsync()
+    public async Task OnGetAsync(CancellationToken cancellationToken)
     {
-        ActiveJobs = await db.Jobs.CountAsync(j =>
-            j.Status != Domain.Enums.JobStatus.Completed &&
-            j.Status != Domain.Enums.JobStatus.Failed &&
-            j.Status != Domain.Enums.JobStatus.Cancelled);
-        CompletedJobs = await db.Jobs.CountAsync(j => j.Status == Domain.Enums.JobStatus.Completed);
-        FailedJobs = await db.Jobs.CountAsync(j => j.Status == Domain.Enums.JobStatus.Failed);
+        var threshold = TimeSpan.FromMinutes(Math.Max(1, scannerOptions.CurrentValue.StalledJobThresholdMinutes));
+        Overview = await dashboard.GetOverviewAsync(threshold, cancellationToken);
     }
 }

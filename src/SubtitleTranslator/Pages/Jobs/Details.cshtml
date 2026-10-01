@@ -1,0 +1,89 @@
+@page "{id:int}"
+@model SubtitleTranslator.Pages.Jobs.DetailsModel
+@using SubtitleTranslator.Domain.Enums
+@{
+    ViewData["Title"] = $"Job {Model.Job.Id}";
+    var endAt = Model.Job.CompletedAt ?? (Model.Job.Status is JobStatus.Failed or JobStatus.Cancelled ? Model.Job.UpdatedAt : DateTimeOffset.UtcNow);
+    var elapsed = Model.Job.StartedAt is null ? (TimeSpan?)null : endAt - Model.Job.StartedAt.Value;
+}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+    <div><h1 class="mb-1">Job #@Model.Job.Id</h1><div class="text-muted text-break">@Model.Job.SourcePath</div></div>
+    <a class="btn btn-outline-secondary" asp-page="Index">Back to jobs</a>
+</div>
+<div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Status</div><div class="fs-5">@Model.Job.Status</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Progress</div><div class="fs-5">@Model.Job.CompletedChunks / @Model.Job.TotalChunks chunks</div><div class="progress mt-2"><div class="progress-bar" style="width: @(Model.Job.TotalChunks == 0 ? 0 : Math.Clamp((int)Math.Round(Model.Job.CompletedChunks * 100d / Model.Job.TotalChunks), 0, 100))%"></div></div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Runtime / cost</div><div>@(elapsed?.ToString("c") ?? "Not started")</div><div>@Model.Job.EstimatedCost.ToString("C")</div></div></div></div>
+    <div class="col-md-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Tokens</div><div>Input: @Model.Job.InputTokens.ToString("N0")</div><div>Output: @Model.Job.OutputTokens.ToString("N0")</div><div>Retries: @Model.Job.RetryCount</div></div></div></div>
+</div>
+<div class="row g-4">
+    <div class="col-lg-5">
+        <section class="mb-4">
+            <h2 class="h4">Configuration and batch</h2>
+            <dl class="row">
+                <dt class="col-sm-5">Pipeline</dt><dd class="col-sm-7">@(Model.Job.Pipeline?.Name ?? "—")</dd>
+                <dt class="col-sm-5">Prompt</dt><dd class="col-sm-7">@(Model.Job.PromptVersion?.PromptTemplate?.Name ?? "—") @(Model.Job.PromptVersion is null ? "" : $"v{Model.Job.PromptVersion.Version}")</dd>
+                <dt class="col-sm-5">Output</dt><dd class="col-sm-7 text-break">@(Model.Job.OutputPath ?? "—")</dd>
+                <dt class="col-sm-5">Azure Batch ID</dt><dd class="col-sm-7 text-break">@(Model.Job.AzureBatchId ?? "—")</dd>
+                <dt class="col-sm-5">Batch status</dt><dd class="col-sm-7">@(Model.Job.AzureBatchStatus ?? "—")</dd>
+                <dt class="col-sm-5">Batch requests</dt><dd class="col-sm-7">@(Model.Job.AzureBatchCompletedRequests?.ToString() ?? "—") / @(Model.Job.AzureBatchTotalRequests?.ToString() ?? "—") completed; @(Model.Job.AzureBatchFailedRequests?.ToString() ?? "0") failed</dd>
+                <dt class="col-sm-5">Created</dt><dd class="col-sm-7">@Model.Job.CreatedAt.ToLocalTime().ToString("g")</dd>
+                <dt class="col-sm-5">Last activity</dt><dd class="col-sm-7">@((Model.Job.LastActivityAt ?? Model.Job.UpdatedAt).ToLocalTime().ToString("g"))</dd>
+            </dl>
+            @if (!string.IsNullOrWhiteSpace(Model.Job.LastError))
+            {
+                <div class="alert alert-danger"><strong>Latest error</strong><div class="text-break">@Model.Job.LastError</div></div>
+            }
+        </section>
+        <section>
+            <h2 class="h4">Timeline</h2>
+            @if (Model.Timeline.Count == 0)
+            {
+                <p class="text-muted">No timeline events recorded.</p>
+            }
+            else
+            {
+                <ol class="list-group list-group-numbered">
+                    @foreach (var item in Model.Timeline)
+                    {
+                        <li class="list-group-item">
+                            <div class="fw-semibold">@item.Title</div>
+                            <div class="small text-muted">@item.At.ToLocalTime().ToString("g")</div>
+                            @if (!string.IsNullOrWhiteSpace(item.Details)) { <div class="small text-break">@item.Details</div> }
+                        </li>
+                    }
+                </ol>
+            }
+        </section>
+    </div>
+    <div class="col-lg-7">
+        <h2 class="h4">Chunks and attempts</h2>
+        @if (Model.Job.Chunks.Count == 0)
+        {
+            <p class="text-muted">No chunks have been recorded yet.</p>
+        }
+        @foreach (var chunk in Model.Job.Chunks.OrderBy(chunk => chunk.Sequence))
+        {
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between"><span>Chunk @chunk.Sequence · subtitles @chunk.StartSubtitleIndex–@chunk.EndSubtitleIndex</span><span class="badge text-bg-secondary">@chunk.Status</span></div>
+                <div class="card-body">
+                    <div class="small text-muted mb-2">@chunk.Provider / @chunk.Model · @chunk.InputTokens.ToString("N0") in / @chunk.OutputTokens.ToString("N0") out · @(chunk.LatencyMs?.ToString("N0") ?? "—") ms</div>
+                    @if (!string.IsNullOrWhiteSpace(chunk.Error)) { <div class="alert alert-danger py-2 text-break">@chunk.Error</div> }
+                    @if (chunk.Attempts.Count == 0)
+                    {
+                        <span class="text-muted small">No attempts recorded.</span>
+                    }
+                    else
+                    {
+                        <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>#</th><th>Provider / model</th><th>Result</th><th>Tokens</th><th>Latency</th><th>Cost</th><th>Error</th></tr></thead><tbody>
+                        @foreach (var attempt in chunk.Attempts.OrderBy(attempt => attempt.AttemptNumber))
+                        {
+                            <tr><td>@attempt.AttemptNumber</td><td>@attempt.Provider<div class="small text-muted">@attempt.Model</div></td><td>@(attempt.Success ? "Success" : "Failed")</td><td>@attempt.InputTokens.ToString("N0") / @attempt.OutputTokens.ToString("N0")<div class="small text-muted">cached @attempt.CachedTokens.GetValueOrDefault().ToString("N0")</div></td><td>@attempt.LatencyMs.ToString("N0") ms</td><td>@attempt.EstimatedCost.ToString("C")</td><td class="text-break">@attempt.ErrorCode @attempt.ErrorMessage</td></tr>
+                        }
+                        </tbody></table></div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+</div>

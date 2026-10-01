@@ -28,6 +28,7 @@ builder.Services.AddScoped<ProviderConfigurationService>();
 builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
+builder.Services.AddScoped<DashboardQueryService>();
 builder.Services.AddScoped<OrchestratorSettingsService>();
 builder.Services.AddScoped<AzureBatchJobStateService>();
 builder.Services.AddScoped<TranslationPipelineExecutor>();
