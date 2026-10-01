@@ -63,11 +63,14 @@ From the server, check:
 curl --fail http://127.0.0.1:8080/health/live
 curl --fail http://127.0.0.1:8080/health/ready
 curl --fail http://127.0.0.1:8080/health
+curl --fail http://127.0.0.1:8080/metrics
 ```
 
 `/health/live` confirms the web process is serving requests. `/health/ready` checks the SQLite-backed application readiness. `/health` remains the aggregate endpoint for existing probes.
 
 The background provider monitor runs every 60 seconds with a 5-second per-probe timeout by default. Override these values with `ProviderHealth__Enabled`, `ProviderHealth__IntervalSeconds`, and `ProviderHealth__TimeoutSeconds` in the environment file. Results are held in memory and shown on the dashboard; after a restart they remain `UNKNOWN` until the first probe completes. Azure checks endpoint/authentication reachability, not an individual deployment's inference availability.
+
+`/metrics` returns Prometheus text-format aggregates for job/chunk states, translation outcomes, retries, token usage, latency, estimated costs, and current provider health. Keep this route private to the monitoring network; the app does not implement endpoint authentication.
 
 Configure the reverse proxy to terminate TLS and forward to `127.0.0.1:8080`. Restrict dashboard access with the network controls or authentication provided by the deployment environment; the application does not yet implement user authentication.
 

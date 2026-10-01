@@ -73,9 +73,11 @@ Os endpoints de saúde estão disponíveis em:
 http://localhost:5043/health
 http://localhost:5043/health/live
 http://localhost:5043/health/ready
+http://localhost:5043/metrics
 ```
 
 `/health/live` indica que o processo web está atendendo; `/health/ready` valida a conexão com SQLite. `/health` mantém o check agregado.
+`/metrics` expõe métricas agregadas em formato Prometheus, sem caminhos de arquivos, nomes de models ou credenciais. Mantenha o endpoint restrito à rede de monitoramento.
 
 Também é possível iniciar o projeto pelo VS Code usando a configuração `SubtitleTranslator: Debug` em `.vscode/launch.json`.
 

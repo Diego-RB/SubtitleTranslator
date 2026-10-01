@@ -29,6 +29,7 @@ builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
 builder.Services.AddScoped<DashboardQueryService>();
+builder.Services.AddScoped<TranslationMetricsService>();
 builder.Services.AddSingleton<ProviderHealthRegistry>();
 builder.Services.AddHttpClient<ProviderHealthCheckService>();
 builder.Services.AddScoped<OrchestratorSettingsService>();
@@ -101,5 +102,9 @@ app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.Health
 {
     Predicate = check => check.Tags.Contains("ready")
 });
+app.MapGet("/metrics", async (TranslationMetricsService metrics, CancellationToken cancellationToken) =>
+    Results.Text(
+        await metrics.RenderPrometheusAsync(cancellationToken),
+        "text/plain; version=0.0.4; charset=utf-8"));
 
 app.Run();
