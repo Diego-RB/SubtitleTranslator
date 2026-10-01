@@ -95,6 +95,13 @@ public sealed class ProviderHealthCheckService(
                 return await CheckOllamaModelsAsync(provider, response, checkedAt, cancellationToken);
             }
 
+            if (provider.Type == ProviderType.AzureOpenAi)
+            {
+                return Snapshot(
+                    ProviderHealthState.Online,
+                    "Azure endpoint and authentication responded; deployment availability was not invoked.");
+            }
+
             return Snapshot(ProviderHealthState.Online, "Provider endpoint responded successfully.");
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)

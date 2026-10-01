@@ -102,6 +102,7 @@ public class ProviderHealthCheckServiceTests
         await CreateService(context, registry, handler, new FakeCredentialResolver("azure-secret")).CheckAllAsync();
 
         Assert.Equal(ProviderHealthState.Online, registry.Get(1).State);
+        Assert.Contains("deployment availability was not invoked", registry.Get(1).Message, StringComparison.Ordinal);
         Assert.DoesNotContain("azure-secret", registry.Get(1).Message, StringComparison.Ordinal);
     }
 
