@@ -161,6 +161,67 @@ public class TranslationPipelineExecutorTests
         }
     }
 
+    [Fact]
+    public async Task ExecuteJob_AfterRestartReusesPersistedCompletedChunkResults()
+    {
+        var sourcePath = Path.Combine(Path.GetTempPath(), $"source-{Guid.NewGuid():N}.srt");
+        var outputPath = Path.Combine(Path.GetTempPath(), $"output-{Guid.NewGuid():N}.srt");
+        await File.WriteAllTextAsync(sourcePath,
+            "1\n00:00:01,000 --> 00:00:02,000\nFirst\n\n2\n00:00:03,000 --> 00:00:04,000\nSecond\n");
+        try
+        {
+            await using var db = CreateContext();
+            var provider = new Provider { Name = "OpenRouter", Type = ProviderType.OpenRouter, BaseUrl = "https://cloud.example" };
+            var model = new ModelDefinition { Name = "Model", ModelId = "model", Provider = provider, ChunkStrategy = ChunkStrategy.MaxSubtitleCount, MaxChunkSubtitles = 1 };
+            var prompt = new PromptVersion { PromptTemplate = new PromptTemplate { Name = "Prompt" }, Version = 1, StaticContent = "Translate." };
+            var pipeline = new Pipeline { Name = "Pipeline", Steps = { new PipelineStep { Order = 1, ModelDefinition = model } } };
+            var job = new TranslationJob { SourcePath = sourcePath, OutputPath = outputPath, Pipeline = pipeline, PromptVersion = prompt };
+            db.Jobs.Add(job);
+            await db.SaveChangesAsync();
+
+            using var cancelled = new CancellationTokenSource();
+            var firstRunProvider = new FakeTranslationProvider("OpenRouter", (request, _) =>
+            {
+                if (request.Subtitles.Single().Index == 1)
+                {
+                    return Task.FromResult(Translation(request.Subtitles.Single(), "translated-first"));
+                }
+
+                cancelled.Cancel();
+                throw new OperationCanceledException(cancelled.Token);
+            });
+            var firstExecutor = CreateExecutor(db, [firstRunProvider]);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => firstExecutor.ExecuteJobAsync(job.Id, cancelled.Token));
+            Assert.Equal(ChunkStatus.Completed, (await db.Chunks.OrderBy(chunk => chunk.Sequence).FirstAsync()).Status);
+            Assert.NotNull((await db.Chunks.OrderBy(chunk => chunk.Sequence).FirstAsync()).ResultJson);
+
+            job.Status = JobStatus.Retrying;
+            await db.SaveChangesAsync();
+            var afterRestartProvider = new FakeTranslationProvider("OpenRouter", (request, _) =>
+                Task.FromResult(Translation(request.Subtitles.Single(), "translated-second")));
+            var resumed = await CreateExecutor(db, [afterRestartProvider]).ExecuteJobAsync(job.Id);
+
+            Assert.True(resumed.Succeeded);
+            Assert.Equal([2], afterRestartProvider.RequestedSubtitleIndexes);
+            var output = new SrtParser().Parse(await File.ReadAllTextAsync(outputPath));
+            Assert.Equal("translated-first", output[0].Text);
+            Assert.Equal("translated-second", output[1].Text);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+            File.Delete(outputPath);
+        }
+    }
+
+    private static TranslationResult Translation(Subtitle source, string text) =>
+        new([new Subtitle { Index = source.Index, Start = source.Start, End = source.End, Text = text }], new TranslationUsage());
+
+    private static TranslationPipelineExecutor CreateExecutor(
+        SubtitleTranslatorDbContext db,
+        IEnumerable<ITranslationProvider> providers) =>
+        new(db, new PipelineDefinitionService(db), new TranslationProviderFactory(providers), [], new AzureBatchJobStateService(db), new SrtFileService(new SrtParser(), new SrtWriter()), new SrtChunker(), new SrtValidator(), NullLogger<TranslationPipelineExecutor>.Instance);
+
     private static SubtitleTranslatorDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<SubtitleTranslatorDbContext>().UseSqlite("Data Source=:memory:").Options;
@@ -176,9 +237,11 @@ public class TranslationPipelineExecutorTests
     {
         public string Name { get; } = name;
         public List<int> RequestSizes { get; } = [];
+        public List<int> RequestedSubtitleIndexes { get; } = [];
         public async Task<TranslationResult> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken = default)
         {
             RequestSizes.Add(request.Subtitles.Count);
+            RequestedSubtitleIndexes.AddRange(request.Subtitles.Select(subtitle => subtitle.Index));
             return await translate(request, cancellationToken);
         }
     }

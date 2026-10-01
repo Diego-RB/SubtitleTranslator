@@ -50,8 +50,14 @@ public class AzureBatchProviderTests
     {
         using var client = new HttpClient(new StubHandler(_ => JsonResponse(new
         {
-            id = "batch-456", status = "in_progress", input_file_id = "file-123", output_file_id = "out-1", error_file_id = "err-1",
-            created_at = 1760000000, in_progress_at = 1760000060, expires_at = 1760086400,
+            id = "batch-456",
+            status = "in_progress",
+            input_file_id = "file-123",
+            output_file_id = "out-1",
+            error_file_id = "err-1",
+            created_at = 1760000000,
+            in_progress_at = 1760000060,
+            expires_at = 1760086400,
             request_counts = new { total = 10, completed = 7, failed = 2 },
             errors = new { data = new[] { new { code = "batch_error", message = "A line failed." } } }
         })));

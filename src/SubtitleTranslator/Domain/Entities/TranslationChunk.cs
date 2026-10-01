@@ -16,6 +16,7 @@ public class TranslationChunk
     public string? Provider { get; set; }
     public string? Model { get; set; }
     public int Attempt { get; set; }
+    public string? ResultJson { get; set; }
 
     public long InputTokens { get; set; }
     public long OutputTokens { get; set; }

@@ -15,6 +15,7 @@ public class SubtitleTranslatorDbContext(DbContextOptions<SubtitleTranslatorDbCo
     public DbSet<TranslationAttempt> Attempts => Set<TranslationAttempt>();
     public DbSet<PromptTemplate> PromptTemplates => Set<PromptTemplate>();
     public DbSet<PromptVersion> PromptVersions => Set<PromptVersion>();
+    public DbSet<OrchestratorSettings> OrchestratorSettings => Set<OrchestratorSettings>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -56,7 +57,9 @@ public class SubtitleTranslatorDbContext(DbContextOptions<SubtitleTranslatorDbCo
         {
             entity.Property(j => j.Status).HasConversion<string>();
             entity.Property(j => j.EstimatedCost).HasColumnType("decimal(18,6)");
-            entity.HasIndex(j => j.SourcePath);
+            entity.HasIndex(j => j.SourcePath)
+                .IsUnique()
+                .HasFilter("\"Status\" NOT IN ('Completed', 'Failed', 'Cancelled')");
 
             entity.HasOne(j => j.Pipeline)
                 .WithMany()
@@ -93,6 +96,19 @@ public class SubtitleTranslatorDbContext(DbContextOptions<SubtitleTranslatorDbCo
                 .WithMany(t => t.Versions)
                 .HasForeignKey(v => v.PromptTemplateId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<OrchestratorSettings>(entity =>
+        {
+            entity.HasOne(settings => settings.DefaultPipeline)
+                .WithMany()
+                .HasForeignKey(settings => settings.DefaultPipelineId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(settings => settings.DefaultPromptVersion)
+                .WithMany()
+                .HasForeignKey(settings => settings.DefaultPromptVersionId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

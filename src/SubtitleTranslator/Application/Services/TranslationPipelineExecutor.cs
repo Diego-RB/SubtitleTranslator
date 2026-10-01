@@ -60,9 +60,9 @@ public sealed class TranslationPipelineExecutor(
         }
 
         var source = await srtFiles.ReadAsync(job.SourcePath, cancellationToken);
+        var translated = await LoadCompletedTranslationsAsync(job, source, cancellationToken);
         var firstModel = steps[0].ModelDefinition!;
         var logicalChunks = CreateChunks(source, firstModel);
-        var translated = new Dictionary<int, Subtitle>();
         var errors = new List<string>();
         var lastSequence = await db.Chunks.Where(chunk => chunk.JobId == job.Id)
             .Select(chunk => (int?)chunk.Sequence).MaxAsync(cancellationToken) ?? 0;
@@ -71,7 +71,7 @@ public sealed class TranslationPipelineExecutor(
         job.Status = JobStatus.Preparing;
         job.StartedAt ??= DateTimeOffset.UtcNow;
         job.TotalChunks = logicalChunks.Count;
-        job.CompletedChunks = 0;
+        job.CompletedChunks = logicalChunks.Count(chunk => chunk.Subtitles.All(subtitle => translated.ContainsKey(subtitle.Index)));
         job.FailedChunks = 0;
         job.LastError = null;
         Touch(job);
@@ -275,6 +275,7 @@ public sealed class TranslationPipelineExecutor(
                     }
 
                     RecordSuccessfulAttempt(job, chunk, provider, model, result.Usage);
+                    chunk.ResultJson = SerializeTranslatedSubtitles(result.Subtitles);
                     chunk.Status = ChunkStatus.Completed;
                     chunk.CompletedAt = DateTimeOffset.UtcNow;
                     chunk.Error = null;
@@ -419,6 +420,7 @@ public sealed class TranslationPipelineExecutor(
                         ReadLong(GetProperty(usageElement, "prompt_tokens_details"), "cached_tokens"));
                     RecordSuccessfulAttempt(job, chunk, provider, model, usage);
                     chunk.Attempts.Last().AzureBatchId = status.BatchId;
+                    chunk.ResultJson = SerializeTranslatedSubtitles(translatedSubtitles);
                     chunk.Status = ChunkStatus.Completed;
                     chunk.CompletedAt = DateTimeOffset.UtcNow;
                     chunk.Error = null;
@@ -522,13 +524,13 @@ public sealed class TranslationPipelineExecutor(
         ModelDefinition model,
         PromptVersion promptVersion,
         IReadOnlyList<Subtitle> subtitles) => new()
-    {
-        Provider = provider.ToConfiguration(),
-        Model = model.ToConfiguration(),
-        Subtitles = subtitles,
-        Prompt = promptVersion.StaticContent,
-        GlossaryJson = promptVersion.GlossaryJson
-    };
+        {
+            Provider = provider.ToConfiguration(),
+            Model = model.ToConfiguration(),
+            Subtitles = subtitles,
+            Prompt = promptVersion.StaticContent,
+            GlossaryJson = promptVersion.GlossaryJson
+        };
 
     private static TranslationChunk CreateAttemptChunk(
         TranslationJob job,
@@ -536,18 +538,18 @@ public sealed class TranslationPipelineExecutor(
         ModelDefinition model,
         IReadOnlyList<Subtitle> subtitles,
         int sequence) => new()
-    {
-        Job = job,
-        Sequence = sequence,
-        StartSubtitleIndex = subtitles.Min(subtitle => subtitle.Index),
-        EndSubtitleIndex = subtitles.Max(subtitle => subtitle.Index),
-        Status = ChunkStatus.Processing,
-        Provider = provider.Name,
-        Model = model.Name,
-        Attempt = 1,
-        CreatedAt = DateTimeOffset.UtcNow,
-        UpdatedAt = DateTimeOffset.UtcNow
-    };
+        {
+            Job = job,
+            Sequence = sequence,
+            StartSubtitleIndex = subtitles.Min(subtitle => subtitle.Index),
+            EndSubtitleIndex = subtitles.Max(subtitle => subtitle.Index),
+            Status = ChunkStatus.Processing,
+            Provider = provider.Name,
+            Model = model.Name,
+            Attempt = 1,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow
+        };
 
     private static void RecordSuccessfulAttempt(
         TranslationJob job,
@@ -634,6 +636,44 @@ public sealed class TranslationPipelineExecutor(
             chunk.UpdatedAt = DateTimeOffset.UtcNow;
         }
     }
+
+    private async Task<Dictionary<int, Subtitle>> LoadCompletedTranslationsAsync(
+        TranslationJob job,
+        IReadOnlyList<Subtitle> source,
+        CancellationToken cancellationToken)
+    {
+        var translated = new Dictionary<int, Subtitle>();
+        var completedChunks = await db.Chunks
+            .Where(chunk => chunk.JobId == job.Id && chunk.Status == ChunkStatus.Completed && chunk.ResultJson != null)
+            .OrderBy(chunk => chunk.Sequence)
+            .ToListAsync(cancellationToken);
+        foreach (var chunk in completedChunks)
+        {
+            try
+            {
+                foreach (var subtitle in ParseSubtitleJson(chunk.ResultJson!, source))
+                {
+                    translated.TryAdd(subtitle.Index, subtitle);
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidDataException or KeyNotFoundException)
+            {
+                logger.LogWarning(exception, "Ignoring invalid persisted translation result for chunk {ChunkId}", chunk.Id);
+                chunk.Status = ChunkStatus.RetryPending;
+                chunk.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }
+
+        if (completedChunks.Any(chunk => chunk.Status == ChunkStatus.RetryPending))
+        {
+            await db.SaveChangesAsync(cancellationToken);
+        }
+
+        return translated;
+    }
+
+    private static string SerializeTranslatedSubtitles(IEnumerable<Subtitle> subtitles) =>
+        JsonSerializer.Serialize(subtitles.Select(subtitle => new { index = subtitle.Index, text = subtitle.Text }));
 
     private Task<int> CountAttemptsAsync(int jobId, CancellationToken cancellationToken) =>
         db.Attempts.CountAsync(attempt => attempt.Chunk != null && attempt.Chunk.JobId == jobId, cancellationToken);
