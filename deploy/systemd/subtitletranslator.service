@@ -1,0 +1,36 @@
+[Unit]
+Description=Subtitle Translator Orchestrator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=subtitletranslator
+Group=subtitletranslator
+WorkingDirectory=/opt/subtitletranslator
+ExecStart=/usr/bin/dotnet /opt/subtitletranslator/SubtitleTranslator.dll
+Restart=always
+RestartSec=30
+TimeoutStopSec=90
+KillSignal=SIGINT
+Environment=ASPNETCORE_ENVIRONMENT=Production
+Environment=ASPNETCORE_URLS=http://127.0.0.1:8080
+EnvironmentFile=-/etc/subtitletranslator/subtitletranslator.env
+StateDirectory=subtitletranslator
+StateDirectoryMode=0750
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/subtitletranslator
+RestrictSUIDSGID=true
+LockPersonality=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

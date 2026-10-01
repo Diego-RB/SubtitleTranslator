@@ -58,7 +58,8 @@ builder.Services.AddDbContext<SubtitleTranslatorDbContext>(options =>
     options.UseSqlite(connectionString));
 
 builder.Services.AddHealthChecks()
-    .AddDbContextCheck<SubtitleTranslatorDbContext>();
+    .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy(), tags: ["live"])
+    .AddDbContextCheck<SubtitleTranslatorDbContext>(tags: ["ready"]);
 
 var app = builder.Build();
 
@@ -88,5 +89,13 @@ app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
 app.MapHealthChecks("/health");
+app.MapHealthChecks("/health/live", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("live")
+});
+app.MapHealthChecks("/health/ready", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    Predicate = check => check.Tags.Contains("ready")
+});
 
 app.Run();

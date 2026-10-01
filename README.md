@@ -6,19 +6,18 @@ O projeto foi criado para substituir scripts de tradução por uma aplicação p
 
 ## Estado atual
 
-As fases iniciais já implementadas incluem:
+O runtime inclui:
 
-- solução .NET 10 com ASP.NET Core Razor Pages;
-- persistência com Entity Framework Core e SQLite;
-- migrations e health endpoint;
-- parser, writer, validator e chunker de SRT;
-- abstração de providers e pipelines configuráveis;
-- provider Ollama via HTTP;
-- provider OpenRouter compatível com API OpenAI;
-- retries, timeouts e métricas básicas nos providers;
-- testes unitários e de integração.
+- ASP.NET Core Razor Pages, EF Core e SQLite com migrations;
+- parser, writer, validator e chunker SRT;
+- adapters Ollama, OpenRouter e Azure OpenAI síncrono, além do ciclo Azure Batch;
+- pipelines configuráveis com fallback, retry seletivo e prompt versionado por job;
+- scanner, worker, heartbeat e recuperação de jobs/batches após restart;
+- página Defaults para selecionar pipeline e prompt padrão;
+- dashboard Home, listagem filtrável de jobs e detalhes com chunks, tentativas, tokens, custos, erros e timeline;
+- health endpoints para liveness, readiness (SQLite) e status agregado.
 
-O projeto ainda está em desenvolvimento incremental. Funcionalidades como Azure OpenAI, Azure Batch, scanner de diretórios, fallback completo, recovery e dashboard operacional serão adicionadas nas próximas fases.
+A aplicação continua em desenvolvimento. Health checks ativos por provider, métricas exportáveis/alertas, autenticação da interface e alguns recursos de operação ainda são limitações conhecidas.
 
 ## Stack
 
@@ -28,7 +27,7 @@ O projeto ainda está em desenvolvimento incremental. Funcionalidades como Azure
 - Entity Framework Core
 - SQLite
 - `HttpClient` e `IHttpClientFactory`
-- `BackgroundService` planejado para as próximas fases
+- `BackgroundService` para scanner, recuperação e execução
 - xUnit
 
 ## Estrutura
@@ -68,11 +67,15 @@ O perfil HTTP de desenvolvimento usa a porta `5043`:
 http://localhost:5043
 ```
 
-O endpoint de saúde está disponível em:
+Os endpoints de saúde estão disponíveis em:
 
 ```text
 http://localhost:5043/health
+http://localhost:5043/health/live
+http://localhost:5043/health/ready
 ```
+
+`/health/live` indica que o processo web está atendendo; `/health/ready` valida a conexão com SQLite. `/health` mantém o check agregado.
 
 Também é possível iniciar o projeto pelo VS Code usando a configuração `SubtitleTranslator: Debug` em `.vscode/launch.json`.
 
@@ -105,7 +108,8 @@ O arquivo `.env` local é ignorado pelo Git. Use um mecanismo seguro de secrets 
 5. Configure a estratégia e os limites de chunking.
 6. Crie um pipeline.
 7. Adicione e ordene os pipeline steps usando os models configurados.
-8. Reinicie a aplicação para confirmar que a configuração permanece no SQLite.
+8. Em **Defaults**, escolha o pipeline e a versão de prompt para novos jobs.
+9. Confirme que os diretórios monitorados estão corretos na seção `Scanner` do `appsettings.json`.
 
 Exemplo seguro de variável de ambiente:
 
@@ -117,9 +121,9 @@ O banco armazena a configuração e apenas a referência da credencial; o segred
 
 Para Azure OpenAI síncrono, configure o provider com o endpoint do recurso, a versão da API e o `CredentialId` como nome da variável de ambiente. O model deve informar o `DeploymentName`. Nesta fase, a autenticação Azure suporta API key por variável de ambiente; Managed Identity ainda não está implementada.
 
-Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. A aplicação envia JSONL UTF-8 sem BOM para `/openai/v1/files`, cria o batch em `/openai/v1/batches` e persiste no job o BatchId, file IDs, status, timestamps e contagens de requests. O executor de pipeline submete e monitora o batch, recupera output/errors e respeita cancelamento. O worker ainda conectará o agendamento e recovery após reinício nas fases posteriores.
+Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. O fluxo JSONL, submissão, polling, outputs/errors, persistência de estado e recuperação são executados pelo worker.
 
-O executor de pipeline usa o `PipelineId` e `PromptVersionId` associados ao job. Cada step usa seu próprio chunk policy; se um provider falhar, somente as legendas ainda não traduzidas avançam para os steps seguintes. A saída `.pt-BR.srt` é criada atomicamente somente após a validação completa. O executor e o ciclo síncrono de Batch já estão disponíveis por DI; agendamento, scanner e recovery após reinício serão conectados pelo worker nas fases posteriores.
+O executor usa o `PipelineId` e `PromptVersionId` fixados no job. Cada step usa sua própria política de chunks; se um provider falhar, somente legendas ainda não traduzidas avançam para o próximo step. A saída `.pt-BR.srt` é criada atomicamente após validação completa. O worker detecta arquivos, recupera jobs interrompidos e mantém heartbeat.
 
 Retries síncronos adicionais são opt-in na configuração do model:
 
@@ -131,6 +135,12 @@ Retries síncronos adicionais são opt-in na configuração do model:
 ```
 
 O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativas, tokens, latência e custo estimado são registrados no SQLite por chunk. A versão do prompt é fixada no job para que uma retomada use o mesmo texto/glossário configurado.
+
+## Executar em Linux com systemd
+
+Há um unit file e um guia de implantação em [`deploy/systemd/subtitletranslator.service`](deploy/systemd/subtitletranslator.service) e [`docs/deployment/systemd.md`](docs/deployment/systemd.md). O serviço usa `/var/lib/subtitletranslator` para o SQLite, escuta por padrão em `127.0.0.1:8080` e deve ficar atrás de um reverse proxy com TLS. O dashboard ainda não tem autenticação própria; restrinja o acesso na rede/proxy.
+
+Para execução local, o banco padrão é `subtitletranslator.db` relativo ao diretório de trabalho. Em produção, sobrescreva `ConnectionStrings__Default` com um caminho persistente gravável pelo usuário do serviço.
 
 ## Princípios do projeto
 
