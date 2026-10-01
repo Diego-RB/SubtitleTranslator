@@ -1,0 +1,56 @@
+groups:
+  - name: subtitletranslator
+    rules:
+      - alert: SubtitleTranslatorDown
+        expr: up{job="subtitletranslator"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Subtitle Translator metrics endpoint is unavailable
+          description: Prometheus has been unable to scrape the Subtitle Translator service for at least two minutes.
+
+      - alert: SubtitleTranslationStalled
+        expr: subtitletranslator_stalled_jobs > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: One or more translation jobs are stalled
+          description: At least one active translation job exceeded its configured activity threshold.
+
+      - alert: SubtitleAzureBatchStalled
+        expr: subtitletranslator_stalled_batches > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: An Azure Batch job has stopped making measurable progress
+          description: At least one active batch has exceeded its configured progress threshold.
+
+      - alert: SubtitleTranslationAttemptsFailing
+        expr: increase(subtitletranslator_translation_attempts_total{result="failure"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: Translation attempts have failed recently
+          description: One or more provider attempts failed during the last ten minutes.
+
+      - alert: SubtitleProviderOffline
+        expr: subtitletranslator_provider_health{state="Offline"} == 1
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: A configured translation provider is offline
+          description: Provider ID {{ $labels.provider_id }} has failed its health probe for at least two minutes.
+
+      - alert: SubtitleProviderDegraded
+        expr: subtitletranslator_provider_health{state="Degraded"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: A configured translation provider is degraded
+          description: Provider ID {{ $labels.provider_id }} has a configuration, authentication, or model availability issue.

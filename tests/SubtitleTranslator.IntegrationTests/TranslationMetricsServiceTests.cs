@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Domain.Entities;
 using SubtitleTranslator.Domain.Enums;
 using SubtitleTranslator.Infrastructure.Persistence;
+using SubtitleTranslator.Workers;
 
 namespace SubtitleTranslator.IntegrationTests;
 
@@ -21,6 +23,32 @@ public class TranslationMetricsServiceTests
             Enabled = true
         };
         context.Providers.Add(provider);
+        var now = DateTimeOffset.UtcNow;
+        context.Jobs.AddRange(
+            new TranslationJob
+            {
+                SourcePath = "stalled-sync.srt",
+                Status = JobStatus.LocalProcessing,
+                UpdatedAt = now.AddMinutes(-30),
+                LastActivityAt = now.AddMinutes(-30)
+            },
+            new TranslationJob
+            {
+                SourcePath = "stalled-batch.srt",
+                Status = JobStatus.AzureBatchProcessing,
+                UpdatedAt = now,
+                LastActivityAt = now,
+                LastHeartbeatAt = now,
+                AzureBatchId = "batch-id",
+                AzureBatchStatus = "in_progress",
+                AzureBatchLastProgressAt = now.AddMinutes(-30)
+            },
+            new TranslationJob
+            {
+                SourcePath = "queued.srt",
+                Status = JobStatus.Queued,
+                UpdatedAt = now.AddDays(-1)
+            });
         var job = new TranslationJob
         {
             SourcePath = "private-source-file.srt",
@@ -71,7 +99,10 @@ public class TranslationMetricsServiceTests
             ProviderHealthState.Online,
             "Online",
             DateTimeOffset.UtcNow));
-        var metrics = new TranslationMetricsService(context, healthRegistry);
+        var metrics = new TranslationMetricsService(
+            context,
+            healthRegistry,
+            new TestOptionsMonitor<ScannerOptions>(new ScannerOptions { StalledJobThresholdMinutes = 10 }));
 
         var output = await metrics.RenderPrometheusAsync();
 
@@ -87,6 +118,8 @@ public class TranslationMetricsServiceTests
         Assert.Contains("subtitletranslator_attempt_latency_milliseconds_sum 2000", output);
         Assert.Contains("subtitletranslator_attempt_latency_milliseconds_count 2", output);
         Assert.Contains("subtitletranslator_estimated_cost_total 0.3", output);
+        Assert.Contains("subtitletranslator_stalled_jobs 2", output);
+        Assert.Contains("subtitletranslator_stalled_batches 1", output);
         Assert.Contains($"provider_id=\"{provider.Id}\",state=\"Online\"}} 1", output);
         Assert.DoesNotContain("private-source-file", output, StringComparison.Ordinal);
         Assert.DoesNotContain("private-model-name", output, StringComparison.Ordinal);
@@ -103,5 +136,13 @@ public class TranslationMetricsServiceTests
         context.Database.OpenConnection();
         context.Database.EnsureCreated();
         return context;
+    }
+
+    private sealed class TestOptionsMonitor<TOptions>(TOptions value) : IOptionsMonitor<TOptions>
+        where TOptions : class
+    {
+        public TOptions CurrentValue => value;
+        public TOptions Get(string? name) => value;
+        public IDisposable? OnChange(Action<TOptions, string?> listener) => null;
     }
 }

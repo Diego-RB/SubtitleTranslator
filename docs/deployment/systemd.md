@@ -72,6 +72,8 @@ The background provider monitor runs every 60 seconds with a 5-second per-probe 
 
 `/metrics` returns Prometheus text-format aggregates for job/chunk states, translation outcomes, retries, token usage, latency, estimated costs, and current provider health. Keep this route private to the monitoring network; the app does not implement endpoint authentication.
 
+Prometheus alert rules are provided in `deploy/monitoring/subtitletranslator-alerts.yml`. Add that file to the Prometheus `rule_files` configuration and scrape `/metrics`. A Prometheus instance on the same host can scrape `127.0.0.1:8080`; for remote scraping, use a private network or an authenticated proxy and do not expose `/metrics` publicly. The rules cover scrape failure, stalled jobs/batches, recent failed attempts, and offline/degraded provider probes. Route notifications through your own Alertmanager configuration.
+
 Configure the reverse proxy to terminate TLS and forward to `127.0.0.1:8080`. Restrict dashboard access with the network controls or authentication provided by the deployment environment; the application does not yet implement user authentication.
 
 ## Updating

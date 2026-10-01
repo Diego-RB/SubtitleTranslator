@@ -140,7 +140,7 @@ O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativa
 
 ## Executar em Linux com systemd
 
-Há um unit file e um guia de implantação em [`deploy/systemd/subtitletranslator.service`](deploy/systemd/subtitletranslator.service) e [`docs/deployment/systemd.md`](docs/deployment/systemd.md). O serviço usa `/var/lib/subtitletranslator` para o SQLite, escuta por padrão em `127.0.0.1:8080` e deve ficar atrás de um reverse proxy com TLS. O dashboard ainda não tem autenticação própria; restrinja o acesso na rede/proxy.
+Há um unit file e um guia de implantação em [`deploy/systemd/subtitletranslator.service`](deploy/systemd/subtitletranslator.service) e [`docs/deployment/systemd.md`](docs/deployment/systemd.md). O serviço usa `/var/lib/subtitletranslator` para o SQLite, escuta por padrão em `127.0.0.1:8080` e deve ficar atrás de um reverse proxy com TLS. Regras Prometheus estão em [`deploy/monitoring/subtitletranslator-alerts.yml`](deploy/monitoring/subtitletranslator-alerts.yml). O dashboard ainda não tem autenticação própria; restrinja o acesso na rede/proxy.
 
 Para execução local, o banco padrão é `subtitletranslator.db` relativo ao diretório de trabalho. Em produção, sobrescreva `ConnectionStrings__Default` com um caminho persistente gravável pelo usuário do serviço.
 

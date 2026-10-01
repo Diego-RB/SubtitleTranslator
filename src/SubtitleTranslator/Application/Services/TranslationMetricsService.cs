@@ -1,17 +1,25 @@
 using System.Globalization;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SubtitleTranslator.Domain.Enums;
 using SubtitleTranslator.Infrastructure.Persistence;
+using SubtitleTranslator.Workers;
 
 namespace SubtitleTranslator.Application.Services;
 
 public sealed class TranslationMetricsService(
     SubtitleTranslatorDbContext db,
-    ProviderHealthRegistry providerHealthRegistry)
+    ProviderHealthRegistry providerHealthRegistry,
+    IOptionsMonitor<ScannerOptions> scannerOptions)
 {
+    private static readonly JobStatus[] QueueStatuses = [JobStatus.Discovered, JobStatus.Queued];
+    private static readonly JobStatus[] TerminalStatuses = [JobStatus.Completed, JobStatus.Failed, JobStatus.Cancelled];
+
     public async Task<string> RenderPrometheusAsync(CancellationToken cancellationToken = default)
     {
+        var now = DateTimeOffset.UtcNow;
+        var stalledThreshold = TimeSpan.FromMinutes(Math.Max(1, scannerOptions.CurrentValue.StalledJobThresholdMinutes));
         var jobCounts = await db.Jobs.AsNoTracking()
             .GroupBy(job => job.Status)
             .Select(group => new { Status = group.Key, Count = group.Count() })
@@ -33,6 +41,24 @@ public sealed class TranslationMetricsService(
         var attemptCount = await db.Attempts.CountAsync(cancellationToken);
         var retries = await db.Jobs.SumAsync(job => job.RetryCount, cancellationToken);
         var estimatedCost = await db.Attempts.SumAsync(attempt => (double)attempt.EstimatedCost, cancellationToken);
+        var activeJobs = await db.Jobs.AsNoTracking()
+            .Where(job => !TerminalStatuses.Contains(job.Status))
+            .Select(job => new
+            {
+                job.Status,
+                job.LastHeartbeatAt,
+                job.LastActivityAt,
+                job.UpdatedAt,
+                job.AzureBatchId,
+                job.AzureBatchStatus,
+                job.AzureBatchLastProgressAt
+            })
+            .ToListAsync(cancellationToken);
+        var stalledJobs = activeJobs.Where(job =>
+            !QueueStatuses.Contains(job.Status)
+            && (IsActiveBatch(job.AzureBatchId, job.AzureBatchStatus)
+                ? job.AzureBatchLastProgressAt ?? job.LastHeartbeatAt ?? job.LastActivityAt ?? job.UpdatedAt
+                : job.LastHeartbeatAt ?? job.LastActivityAt ?? job.UpdatedAt) <= now - stalledThreshold).ToArray();
         var providers = await db.Providers.AsNoTracking()
             .Select(provider => new { provider.Id, provider.Name })
             .ToListAsync(cancellationToken);
@@ -72,6 +98,8 @@ public sealed class TranslationMetricsService(
         AppendScalar(builder, "subtitletranslator_attempt_latency_milliseconds_sum", "Total provider attempt latency in milliseconds.", "counter", latencySum);
         AppendScalar(builder, "subtitletranslator_attempt_latency_milliseconds_count", "Number of provider attempts included in latency sum.", "counter", attemptCount);
         AppendScalar(builder, "subtitletranslator_estimated_cost_total", "Estimated cost summed over persisted attempts in configured currency units.", "counter", estimatedCost);
+        AppendScalar(builder, "subtitletranslator_stalled_jobs", "Active translation jobs with no recent activity or progress.", "gauge", stalledJobs.Length);
+        AppendScalar(builder, "subtitletranslator_stalled_batches", "Active Azure batches with no recent measurable progress.", "gauge", stalledJobs.Count(job => IsActiveBatch(job.AzureBatchId, job.AzureBatchStatus)));
 
         AppendHeader(builder, "subtitletranslator_provider_health", "Current in-memory provider health state (one means active state).", "gauge");
         foreach (var provider in providers)
@@ -90,6 +118,15 @@ public sealed class TranslationMetricsService(
 
         return builder.ToString();
     }
+
+    private static bool IsActiveBatch(string? batchId, string? batchStatus) =>
+        !string.IsNullOrWhiteSpace(batchId)
+        && batchStatus is not null
+        && !batchStatus.Equals("completed", StringComparison.OrdinalIgnoreCase)
+        && !batchStatus.Equals("failed", StringComparison.OrdinalIgnoreCase)
+        && !batchStatus.Equals("expired", StringComparison.OrdinalIgnoreCase)
+        && !batchStatus.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
+        && !batchStatus.Equals("canceled", StringComparison.OrdinalIgnoreCase);
 
     private static void AppendScalar<T>(StringBuilder builder, string name, string help, string type, T value)
         where T : IFormattable
