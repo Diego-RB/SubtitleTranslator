@@ -33,6 +33,8 @@ public sealed record TranslationRequest
     public required IReadOnlyList<Subtitle> Subtitles { get; init; }
     public string? Prompt { get; init; }
     public string? GlossaryJson { get; init; }
+    public bool SupportsPromptCache { get; init; }
+    public string? PromptCacheKey { get; init; }
     public string SourceLanguage { get; init; } = "en";
     public string TargetLanguage { get; init; } = "pt-BR";
 }

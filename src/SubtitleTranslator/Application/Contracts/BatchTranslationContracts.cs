@@ -8,7 +8,9 @@ public sealed record BatchTranslationItem(
     IReadOnlyList<Subtitle> Subtitles,
     string SourceLanguage = "en",
     string TargetLanguage = "pt-BR",
-    string? GlossaryJson = null);
+    string? GlossaryJson = null,
+    bool SupportsPromptCache = false,
+    string? PromptCacheKey = null);
 
 public sealed record BatchSubmissionResult(
     string BatchId,

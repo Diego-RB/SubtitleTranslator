@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
@@ -18,6 +19,8 @@ public sealed class OpenRouterProvider(
     private const int DefaultTimeoutSeconds = 120;
     private const int DefaultMaxRetries = 3;
     private const int DefaultRetryDelayMilliseconds = 500;
+    private const int DefaultMaxParallelRequests = 4;
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> concurrencyLimits = new();
 
     public string Name => "OpenRouter";
 
@@ -29,11 +32,15 @@ public sealed class OpenRouterProvider(
         ValidateRequest(request);
 
         var options = OpenRouterOptions.Parse(request.Model.ConfigurationJson);
-        var apiKey = credentialResolver.Resolve(request.Provider.CredentialId);
-        if (string.IsNullOrWhiteSpace(apiKey))
+        string? apiKey = null;
+        if (!string.Equals(request.Provider.AuthenticationType, "None", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException(
-                $"Credential '{request.Provider.CredentialId}' was not found in the environment.");
+            apiKey = credentialResolver.Resolve(request.Provider.CredentialId);
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                throw new InvalidOperationException(
+                    $"Credential '{request.Provider.CredentialId}' was not found in the environment.");
+            }
         }
 
         var payload = new ChatCompletionRequest(
@@ -47,19 +54,30 @@ public sealed class OpenRouterProvider(
             request.Model.MaxOutputTokens);
 
         var endpoint = BuildEndpoint(request.Provider.BaseUrl!);
+        var semaphoreKey = $"{request.Provider.Id}:{options.MaxParallelRequests}";
+        var semaphore = concurrencyLimits.GetOrAdd(
+            semaphoreKey,
+            _ => new SemaphoreSlim(options.MaxParallelRequests, options.MaxParallelRequests));
+
+        await semaphore.WaitAsync(cancellationToken);
         var stopwatch = Stopwatch.StartNew();
-        for (var attempt = 0; ; attempt++)
+        try
         {
-            try
+            for (var attempt = 0; ; attempt++)
             {
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
+                try
                 {
-                    Content = JsonContent.Create(payload, options: JsonOptions)
-                };
-                httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-                AddOptionalHeaders(httpRequest, options);
+                    using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeout.CancelAfter(TimeSpan.FromSeconds(options.TimeoutSeconds));
+                    using var httpRequest = new HttpRequestMessage(HttpMethod.Post, endpoint)
+                    {
+                        Content = JsonContent.Create(payload, options: JsonOptions)
+                    };
+                    if (!string.IsNullOrWhiteSpace(apiKey))
+                    {
+                        httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+                    }
+                    AddOptionalHeaders(httpRequest, options);
 
                 using var response = await httpClient.SendAsync(
                     httpRequest,
@@ -87,36 +105,38 @@ public sealed class OpenRouterProvider(
                         transient);
                 }
 
-                return ParseResponse(responseBody, request.Subtitles, stopwatch.ElapsedMilliseconds);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                if (attempt < options.MaxRetries)
+                    return ParseResponse(responseBody, request.Subtitles, stopwatch.ElapsedMilliseconds);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    if (attempt < options.MaxRetries)
+                    {
+                        await DelayBeforeRetryAsync(null, attempt, options, cancellationToken);
+                        continue;
+                    }
+
+                    throw new OpenRouterProviderException(
+                        $"OpenRouter request timed out after {options.TimeoutSeconds} seconds.",
+                        isTransient: true);
+                }
+                catch (HttpRequestException exception) when (attempt < options.MaxRetries)
                 {
                     await DelayBeforeRetryAsync(null, attempt, options, cancellationToken);
-                    continue;
+                    logger.LogDebug(exception, "Retrying transient OpenRouter connection failure");
                 }
-
-                throw new OpenRouterProviderException(
-                    $"OpenRouter request timed out after {options.TimeoutSeconds} seconds.",
-                    isTransient: true);
+                catch (HttpRequestException exception)
+                {
+                    throw new OpenRouterProviderException(
+                        "OpenRouter could not be reached.",
+                        isTransient: true,
+                        innerException: exception);
+                }
             }
-            catch (HttpRequestException exception) when (attempt < options.MaxRetries)
-            {
-                await DelayBeforeRetryAsync(null, attempt, options, cancellationToken);
-                logger.LogDebug(exception, "Retrying transient OpenRouter connection failure");
-            }
-            catch (HttpRequestException exception)
-            {
-                throw new OpenRouterProviderException(
-                    "OpenRouter could not be reached.",
-                    isTransient: true,
-                    innerException: exception);
-            }
-            finally
-            {
-                stopwatch.Stop();
-            }
+        }
+        finally
+        {
+            stopwatch.Stop();
+            semaphore.Release();
         }
     }
 
@@ -132,7 +152,8 @@ public sealed class OpenRouterProvider(
             throw new InvalidOperationException("OpenRouter BaseUrl is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Provider.CredentialId))
+        if (!string.Equals(request.Provider.AuthenticationType, "None", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(request.Provider.CredentialId))
         {
             throw new InvalidOperationException("OpenRouter CredentialId is required.");
         }
@@ -231,6 +252,7 @@ public sealed class OpenRouterProvider(
             InputTokens: response?.Usage?.PromptTokens ?? 0,
             OutputTokens: response?.Usage?.CompletionTokens ?? 0,
             CachedTokens: response?.Usage?.PromptTokensDetails?.CachedTokens ?? 0,
+            CacheWriteTokens: response?.Usage?.PromptTokensDetails?.CacheWriteTokens ?? 0,
             LatencyMs: latencyMs);
         return new TranslationResult(translated, usage, response?.Id);
     }
@@ -321,7 +343,8 @@ public sealed class OpenRouterProvider(
         [property: JsonPropertyName("prompt_tokens_details")] PromptTokensDetails? PromptTokensDetails);
 
     private sealed record PromptTokensDetails(
-        [property: JsonPropertyName("cached_tokens")] long CachedTokens);
+        [property: JsonPropertyName("cached_tokens")] long CachedTokens,
+        [property: JsonPropertyName("cache_write_tokens")] long CacheWriteTokens = 0);
 
     private sealed record OpenRouterSubtitle(
         [property: JsonPropertyName("index")] int Index,
@@ -331,6 +354,7 @@ public sealed class OpenRouterProvider(
         int TimeoutSeconds,
         int MaxRetries,
         int RetryDelayMilliseconds,
+        int MaxParallelRequests,
         string? HttpReferer,
         string? XTitle)
     {
@@ -338,7 +362,7 @@ public sealed class OpenRouterProvider(
         {
             if (string.IsNullOrWhiteSpace(configurationJson))
             {
-                return new(DefaultTimeoutSeconds, DefaultMaxRetries, DefaultRetryDelayMilliseconds, null, null);
+                return new(DefaultTimeoutSeconds, DefaultMaxRetries, DefaultRetryDelayMilliseconds, DefaultMaxParallelRequests, null, null);
             }
 
             try
@@ -349,6 +373,7 @@ public sealed class OpenRouterProvider(
                     Math.Max(1, configuration.TimeoutSeconds ?? DefaultTimeoutSeconds),
                     Math.Max(0, configuration.MaxRetries ?? DefaultMaxRetries),
                     Math.Max(0, configuration.RetryDelayMilliseconds ?? DefaultRetryDelayMilliseconds),
+                    Math.Max(1, configuration.MaxParallelRequests ?? DefaultMaxParallelRequests),
                     configuration.HttpReferer,
                     configuration.XTitle);
             }
@@ -363,6 +388,7 @@ public sealed class OpenRouterProvider(
             public int? TimeoutSeconds { get; init; }
             public int? MaxRetries { get; init; }
             public int? RetryDelayMilliseconds { get; init; }
+            public int? MaxParallelRequests { get; init; }
             public string? HttpReferer { get; init; }
             public string? XTitle { get; init; }
         }

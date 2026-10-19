@@ -242,65 +242,99 @@ public sealed class TranslationPipelineExecutor(
             await db.SaveChangesAsync(cancellationToken);
             return;
         }
-        foreach (var srtChunk in chunks)
+        var pendingChunks = chunks
+            .Select(srtChunk => srtChunk.Subtitles.Where(subtitle => !translated.ContainsKey(subtitle.Index)).ToArray())
+            .Where(subtitles => subtitles.Length > 0)
+            .Select(subtitles => (Subtitles: (IReadOnlyList<Subtitle>)subtitles, Chunk: CreateAttemptChunk(job, provider, model, subtitles, ++sequence.Value)))
+            .ToArray();
+        if (pendingChunks.Length == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var pendingInChunk = srtChunk.Subtitles.Where(subtitle => !translated.ContainsKey(subtitle.Index)).ToArray();
-            if (pendingInChunk.Length == 0)
-            {
-                continue;
-            }
-
-            var chunk = CreateAttemptChunk(job, provider, model, pendingInChunk, ++sequence.Value);
-            db.Chunks.Add(chunk);
-            await db.SaveChangesAsync(cancellationToken);
-            var maxAttempts = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineMaxAttempts") ?? 1, 1, 5);
-            var retryDelayMilliseconds = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineRetryDelayMilliseconds") ?? 1000, 0, 60_000);
-            for (var attempt = 1; attempt <= maxAttempts; attempt++)
-            {
-                chunk.Attempt = attempt;
-                try
-                {
-                    var request = CreateTranslationRequest(provider, model, promptVersion, pendingInChunk);
-                    var result = await adapter.TranslateAsync(request, cancellationToken);
-                    var validation = validator.Validate(pendingInChunk, result.Subtitles);
-                    if (!validation.IsValid)
-                    {
-                        throw new InvalidDataException(string.Join(" ", validation.Errors));
-                    }
-
-                    foreach (var subtitle in result.Subtitles)
-                    {
-                        translated[subtitle.Index] = subtitle;
-                    }
-
-                    RecordSuccessfulAttempt(job, chunk, provider, model, result.Usage);
-                    chunk.ResultJson = SerializeTranslatedSubtitles(result.Subtitles);
-                    chunk.Status = ChunkStatus.Completed;
-                    chunk.CompletedAt = DateTimeOffset.UtcNow;
-                    chunk.Error = null;
-                    UpdateProgress(job, logicalChunks, translated);
-                    Touch(job);
-                    await db.SaveChangesAsync(cancellationToken);
-                    break;
-                }
-                catch (Exception exception) when (exception is not OperationCanceledException)
-                {
-                    RecordFailedAttempt(job, chunk, provider, model, exception);
-                    chunk.Status = attempt < maxAttempts ? ChunkStatus.Processing : ChunkStatus.RetryPending;
-                    chunk.Error = exception.Message;
-                    errors.Add($"{provider.Name}/{model.Name}: {exception.Message}");
-                    UpdateProgress(job, logicalChunks, translated);
-                    Touch(job);
-                    await db.SaveChangesAsync(cancellationToken);
-                    logger.LogWarning(exception, "Translation chunk {ChunkId} attempt {Attempt}/{MaxAttempts} failed for job {JobId} using {Provider}/{Model}", chunk.Id, attempt, maxAttempts, job.Id, provider.Name, model.Name);
-                    if (attempt < maxAttempts && retryDelayMilliseconds > 0)
-                    {
-                        await Task.Delay(retryDelayMilliseconds, cancellationToken);
-                    }
-                }
-            }
+            return;
         }
+
+        foreach (var (_, chunk) in pendingChunks)
+        {
+            db.Chunks.Add(chunk);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+
+        var defaultParallelism = provider.Type == ProviderType.Ollama ? 1 : 1;
+        var maxParallel = Math.Clamp(ReadInt(model.ConfigurationJson, "maxParallelRequests") ?? defaultParallelism, 1, 16);
+        var maxAttempts = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineMaxAttempts") ?? 1, 1, 5);
+        var retryDelayMilliseconds = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineRetryDelayMilliseconds") ?? 1000, 0, 60_000);
+        using var dbGate = new SemaphoreSlim(1, 1);
+
+        await Parallel.ForEachAsync(
+            pendingChunks,
+            new ParallelOptions { MaxDegreeOfParallelism = maxParallel, CancellationToken = cancellationToken },
+            async (workItem, token) =>
+            {
+                var (pendingInChunk, chunk) = workItem;
+                for (var attempt = 1; attempt <= maxAttempts; attempt++)
+                {
+                    try
+                    {
+                        var request = CreateTranslationRequest(provider, model, promptVersion, pendingInChunk);
+                        var result = await adapter.TranslateAsync(request, token);
+                        var validation = validator.Validate(pendingInChunk, result.Subtitles);
+                        if (!validation.IsValid)
+                        {
+                            throw new InvalidDataException(string.Join(" ", validation.Errors));
+                        }
+
+                        await dbGate.WaitAsync(token);
+                        try
+                        {
+                            chunk.Attempt = attempt;
+                            foreach (var subtitle in result.Subtitles)
+                            {
+                                translated[subtitle.Index] = subtitle;
+                            }
+
+                            RecordSuccessfulAttempt(job, chunk, provider, model, result.Usage);
+                            chunk.ResultJson = SerializeTranslatedSubtitles(result.Subtitles);
+                            chunk.Status = ChunkStatus.Completed;
+                            chunk.CompletedAt = DateTimeOffset.UtcNow;
+                            chunk.Error = null;
+                            UpdateProgress(job, logicalChunks, translated);
+                            Touch(job);
+                            await db.SaveChangesAsync(token);
+                        }
+                        finally
+                        {
+                            dbGate.Release();
+                        }
+
+                        break;
+                    }
+                    catch (Exception exception) when (exception is not OperationCanceledException)
+                    {
+                        await dbGate.WaitAsync(token);
+                        try
+                        {
+                            chunk.Attempt = attempt;
+                            RecordFailedAttempt(job, chunk, provider, model, exception);
+                            chunk.Status = attempt < maxAttempts ? ChunkStatus.Processing : ChunkStatus.RetryPending;
+                            chunk.Error = exception.Message;
+                            errors.Add($"{provider.Name}/{model.Name}: {exception.Message}");
+                            UpdateProgress(job, logicalChunks, translated);
+                            Touch(job);
+                            await db.SaveChangesAsync(token);
+                        }
+                        finally
+                        {
+                            dbGate.Release();
+                        }
+
+                        logger.LogWarning(exception, "Translation chunk {ChunkId} attempt {Attempt}/{MaxAttempts} failed for job {JobId} using {Provider}/{Model}", chunk.Id, attempt, maxAttempts, job.Id, provider.Name, model.Name);
+                        if (attempt < maxAttempts && retryDelayMilliseconds > 0)
+                        {
+                            await Task.Delay(retryDelayMilliseconds, token);
+                        }
+                    }
+                }
+            });
     }
 
     private async Task ProcessBatchStepAsync(
@@ -331,7 +365,14 @@ public sealed class TranslationPipelineExecutor(
             await db.SaveChangesAsync(cancellationToken);
             var customId = $"job-{job.Id}-chunk-{chunk.Id}";
             chunksByCustomId.Add(customId, chunk);
-            items.Add(new BatchTranslationItem(customId, pendingInChunk, "en", "pt-BR", promptVersion.GlossaryJson));
+            items.Add(new BatchTranslationItem(
+                customId,
+                pendingInChunk,
+                "en",
+                "pt-BR",
+                promptVersion.GlossaryJson,
+                promptVersion.SupportsPromptCache,
+                promptVersion.PromptCacheKey));
         }
 
         if (items.Count == 0)
@@ -414,11 +455,13 @@ public sealed class TranslationPipelineExecutor(
                     }
 
                     var usageElement = body.TryGetProperty("usage", out var usageJson) ? usageJson : default;
+                    var detailsElement = GetProperty(usageElement, "prompt_tokens_details");
                     var usage = new TranslationUsage(
                         ReadLong(usageElement, "prompt_tokens"),
                         ReadLong(usageElement, "completion_tokens"),
-                        ReadLong(GetProperty(usageElement, "prompt_tokens_details"), "cached_tokens"));
-                    RecordSuccessfulAttempt(job, chunk, provider, model, usage);
+                        ReadLong(detailsElement, "cached_tokens"),
+                        ReadLong(detailsElement, "cache_write_tokens"));
+                    RecordSuccessfulAttempt(job, chunk, provider, model, usage, isBatch: true);
                     chunk.Attempts.Last().AzureBatchId = status.BatchId;
                     chunk.ResultJson = SerializeTranslatedSubtitles(translatedSubtitles);
                     chunk.Status = ChunkStatus.Completed;
@@ -529,7 +572,9 @@ public sealed class TranslationPipelineExecutor(
             Model = model.ToConfiguration(),
             Subtitles = subtitles,
             Prompt = promptVersion.StaticContent,
-            GlossaryJson = promptVersion.GlossaryJson
+            GlossaryJson = promptVersion.GlossaryJson,
+            SupportsPromptCache = promptVersion.SupportsPromptCache,
+            PromptCacheKey = promptVersion.PromptCacheKey
         };
 
     private static TranslationChunk CreateAttemptChunk(
@@ -556,9 +601,10 @@ public sealed class TranslationPipelineExecutor(
         TranslationChunk chunk,
         Provider provider,
         ModelDefinition model,
-        TranslationUsage usage)
+        TranslationUsage usage,
+        bool isBatch = false)
     {
-        var cost = TranslationCostCalculator.Calculate(usage, model);
+        var cost = TranslationCostCalculator.Calculate(usage, model, isBatch);
         chunk.InputTokens += usage.InputTokens;
         chunk.OutputTokens += usage.OutputTokens;
         chunk.LatencyMs = (chunk.LatencyMs ?? 0) + usage.LatencyMs;

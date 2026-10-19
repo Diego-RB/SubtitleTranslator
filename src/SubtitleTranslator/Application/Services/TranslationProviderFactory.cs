@@ -18,7 +18,9 @@ public sealed class TranslationProviderFactory(
             throw new InvalidOperationException($"Provider '{provider.Name}' has no type configured.");
         }
 
-        if (!providers.TryGetValue(provider.Type, out var translationProvider))
+        if (!providers.TryGetValue(provider.Type, out var translationProvider)
+            && !(string.Equals(provider.Type, "OpenAiCompatible", StringComparison.OrdinalIgnoreCase)
+                && providers.TryGetValue("OpenRouter", out translationProvider)))
         {
             throw new InvalidOperationException(
                 $"No translation adapter is registered for provider type '{provider.Type}'.");

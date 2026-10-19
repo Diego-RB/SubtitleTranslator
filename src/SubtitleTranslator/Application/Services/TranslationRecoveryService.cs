@@ -170,7 +170,7 @@ public sealed class TranslationRecoveryService(
                 var usage = ReadUsage(body);
                 chunk.InputTokens += usage.InputTokens;
                 chunk.OutputTokens += usage.OutputTokens;
-                var cost = TranslationCostCalculator.Calculate(usage, model);
+                var cost = TranslationCostCalculator.Calculate(usage, model, isBatch: true);
                 job.InputTokens += usage.InputTokens;
                 job.OutputTokens += usage.OutputTokens;
                 job.EstimatedCost += cost;
@@ -335,7 +335,8 @@ public sealed class TranslationRecoveryService(
         return new TranslationUsage(
             ReadLong(usage, "prompt_tokens"),
             ReadLong(usage, "completion_tokens"),
-            ReadLong(details, "cached_tokens"));
+            ReadLong(details, "cached_tokens"),
+            ReadLong(details, "cache_write_tokens"));
     }
 
     private static JsonElement GetProperty(JsonElement element, string name) =>

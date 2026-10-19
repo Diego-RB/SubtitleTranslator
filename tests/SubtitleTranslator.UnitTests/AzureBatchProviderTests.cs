@@ -26,7 +26,7 @@ public class AzureBatchProviderTests
 
         var result = await provider.SubmitBatchAsync(
             ProviderConfig(), ModelConfig(), "static translation prompt",
-            [new BatchTranslationItem("chunk-1", Subtitles())]);
+            [new BatchTranslationItem("chunk-1", Subtitles(), SupportsPromptCache: true, PromptCacheKey: "batch-cache-v1")]);
 
         Assert.Equal("batch-456", result.BatchId);
         Assert.Equal("file-123", result.InputFileId);
@@ -39,6 +39,7 @@ public class AzureBatchProviderTests
         Assert.Contains("deployment-x", requests[0].Body);
         Assert.Contains("static translation prompt", requests[0].Body);
         Assert.Contains("pt-BR", requests[0].Body);
+        Assert.Contains("\"prompt_cache_key\":\"batch-cache-v1\"", requests[0].Body);
         Assert.Equal("batch-secret", requests[0].ApiKey);
         Assert.EndsWith("/openai/v1/batches", requests[1].Url);
         Assert.Contains("\"completion_window\":\"24h\"", requests[1].Body);

@@ -8,15 +8,29 @@ public sealed class OrchestratorSettingsService(SubtitleTranslatorDbContext db)
 {
     public async Task<OrchestratorSettings> EnsureDefaultsAsync(CancellationToken cancellationToken = default)
     {
+        var promptService = new PromptConfigurationService(db);
+        var defaultPromptVersion = await promptService.EnsureDefaultPromptAsync(cancellationToken);
+
         var settings = await db.OrchestratorSettings
             .SingleOrDefaultAsync(item => item.Id == 1, cancellationToken);
 
         if (settings is not null)
         {
+            if (settings.DefaultPromptVersionId is null)
+            {
+                settings.DefaultPromptVersionId = defaultPromptVersion.Id;
+                settings.UpdatedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(cancellationToken);
+            }
+
             return settings;
         }
 
-        settings = new OrchestratorSettings { Id = 1 };
+        settings = new OrchestratorSettings
+        {
+            Id = 1,
+            DefaultPromptVersionId = defaultPromptVersion.Id
+        };
         db.OrchestratorSettings.Add(settings);
         await db.SaveChangesAsync(cancellationToken);
         return settings;

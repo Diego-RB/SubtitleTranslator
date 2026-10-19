@@ -113,6 +113,7 @@ builder.Services.AddScoped<ProviderConfigurationService>();
 builder.Services.AddScoped<ModelConfigurationService>();
 builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
+builder.Services.AddScoped<PromptConfigurationService>();
 builder.Services.AddScoped<DashboardQueryService>();
 builder.Services.AddScoped<TranslationMetricsService>();
 builder.Services.AddSingleton<ProviderHealthRegistry>();

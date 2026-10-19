@@ -39,14 +39,18 @@ public sealed class AzureOpenAiProvider(
             request.Provider.BaseUrl!,
             request.Model.DeploymentName!,
             request.Provider.ApiVersion!);
+        var promptCacheKey = request.SupportsPromptCache && !string.IsNullOrWhiteSpace(request.PromptCacheKey)
+            ? request.PromptCacheKey
+            : null;
         var payload = new ChatCompletionRequest(
             [
-                new ChatMessage("system", request.Prompt!),
+                new ChatMessage("system", BuildSystemPrompt(request)),
                 new ChatMessage("user", BuildUserContent(request))
             ],
             request.Model.Temperature,
             request.Model.TopP,
-            request.Model.MaxOutputTokens);
+            request.Model.MaxOutputTokens,
+            promptCacheKey);
 
         var stopwatch = Stopwatch.StartNew();
         for (var attempt = 0; ; attempt++)
@@ -183,6 +187,16 @@ public sealed class AzureOpenAiProvider(
         return $"{endpoint}{separator}api-version={Uri.EscapeDataString(apiVersion)}";
     }
 
+    private static string BuildSystemPrompt(TranslationRequest request)
+    {
+        if (!request.SupportsPromptCache || string.IsNullOrWhiteSpace(request.GlossaryJson))
+        {
+            return request.Prompt!;
+        }
+
+        return $"{request.Prompt!.Trim()}\n\nGlossary:\n{request.GlossaryJson.Trim()}";
+    }
+
     private static string BuildUserContent(TranslationRequest request)
     {
         var subtitles = request.Subtitles.Select(subtitle => new
@@ -194,7 +208,7 @@ public sealed class AzureOpenAiProvider(
         {
             sourceLanguage = request.SourceLanguage,
             targetLanguage = request.TargetLanguage,
-            glossary = request.GlossaryJson,
+            glossary = request.SupportsPromptCache ? null : request.GlossaryJson,
             subtitles
         }, JsonOptions);
     }
@@ -240,6 +254,7 @@ public sealed class AzureOpenAiProvider(
             InputTokens: response?.Usage?.PromptTokens ?? 0,
             OutputTokens: response?.Usage?.CompletionTokens ?? 0,
             CachedTokens: response?.Usage?.PromptTokensDetails?.CachedTokens ?? 0,
+            CacheWriteTokens: response?.Usage?.PromptTokensDetails?.CacheWriteTokens ?? 0,
             LatencyMs: latencyMs);
         return new TranslationResult(translated, usage, response?.Id);
     }
@@ -311,7 +326,9 @@ public sealed class AzureOpenAiProvider(
         IReadOnlyList<ChatMessage> Messages,
         double? Temperature,
         double? TopP,
-        int? MaxTokens);
+        int? MaxTokens,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? PromptCacheKey = null);
 
     private sealed record ChatMessage(string Role, string Content);
 
@@ -329,7 +346,8 @@ public sealed class AzureOpenAiProvider(
         [property: JsonPropertyName("prompt_tokens_details")] PromptTokensDetails? PromptTokensDetails);
 
     private sealed record PromptTokensDetails(
-        [property: JsonPropertyName("cached_tokens")] long CachedTokens);
+        [property: JsonPropertyName("cached_tokens")] long CachedTokens,
+        [property: JsonPropertyName("cache_write_tokens")] long CacheWriteTokens = 0);
 
     private sealed record AzureSubtitle(
         [property: JsonPropertyName("index")] int Index,

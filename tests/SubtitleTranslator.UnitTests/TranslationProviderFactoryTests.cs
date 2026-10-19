@@ -27,6 +27,25 @@ public class TranslationProviderFactoryTests
     }
 
     [Fact]
+    public void GetRequired_ResolvesOpenAiCompatibleToOpenRouterAdapter()
+    {
+        var adapter = new FakeProvider("OpenRouter");
+        var factory = new TranslationProviderFactory([adapter]);
+        var configuration = new ProviderConfiguration(
+            2,
+            "Compatible Endpoint",
+            "OpenAiCompatible",
+            "https://compatible.example/v1",
+            "ApiKey",
+            "COMPATIBLE_KEY",
+            null);
+
+        var selected = factory.GetRequired(configuration);
+
+        Assert.Same(adapter, selected);
+    }
+
+    [Fact]
     public void GetRequired_ThrowsWhenAdapterIsNotRegistered()
     {
         var factory = new TranslationProviderFactory([]);

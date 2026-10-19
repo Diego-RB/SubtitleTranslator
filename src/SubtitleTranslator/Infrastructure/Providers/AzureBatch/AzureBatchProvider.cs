@@ -232,32 +232,34 @@ public sealed class AzureBatchProvider(
         var builder = new StringBuilder();
         foreach (var item in items)
         {
-            var body = new
-            {
-                model = deployment,
-                messages = new object[]
-                {
-                    new { role = "system", content = prompt },
-                    new
-                    {
-                        role = "user",
-                        content = JsonSerializer.Serialize(new
+            var systemPrompt = item.SupportsPromptCache && !string.IsNullOrWhiteSpace(item.GlossaryJson)
+                ? $"{prompt.Trim()}\n\nGlossary:\n{item.GlossaryJson.Trim()}"
+                : prompt;
+            var promptCacheKey = item.SupportsPromptCache && !string.IsNullOrWhiteSpace(item.PromptCacheKey)
+                ? item.PromptCacheKey
+                : null;
+            var body = new BatchRequestBody(
+                deployment,
+                [
+                    new BatchChatMessage("system", systemPrompt),
+                    new BatchChatMessage(
+                        "user",
+                        JsonSerializer.Serialize(new
                         {
                             sourceLanguage = item.SourceLanguage,
                             targetLanguage = item.TargetLanguage,
-                            glossary = item.GlossaryJson,
+                            glossary = item.SupportsPromptCache ? null : item.GlossaryJson,
                             subtitles = item.Subtitles.Select(subtitle => new
                             {
                                 index = subtitle.Index,
                                 text = subtitle.Text
                             })
-                        }, JsonOptions)
-                    }
-                },
-                temperature = model.Temperature,
-                top_p = model.TopP,
-                max_tokens = model.MaxOutputTokens
-            };
+                        }, JsonOptions))
+                ],
+                model.Temperature,
+                model.TopP,
+                model.MaxOutputTokens,
+                promptCacheKey);
             var line = JsonSerializer.Serialize(new
             {
                 custom_id = item.CustomId,
@@ -270,6 +272,17 @@ public sealed class AzureBatchProvider(
 
         return builder.ToString();
     }
+
+    private sealed record BatchChatMessage(string Role, string Content);
+
+    private sealed record BatchRequestBody(
+        string Model,
+        IReadOnlyList<BatchChatMessage> Messages,
+        double? Temperature,
+        double? TopP,
+        int? MaxTokens,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? PromptCacheKey = null);
 
     private static BatchStatusResult ParseStatus(string content, DateTimeOffset polledAt)
     {

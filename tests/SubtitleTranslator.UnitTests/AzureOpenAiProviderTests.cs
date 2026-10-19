@@ -24,22 +24,24 @@ public class AzureOpenAiProviderTests
             {
                 id = "azure-request-1",
                 choices = new[] { new { message = new { role = "assistant", content = "[{\"index\":2,\"text\":\"Mundo\"},{\"index\":1,\"text\":\"Olá\"}]" } } },
-                usage = new { prompt_tokens = 20, completion_tokens = 9, prompt_tokens_details = new { cached_tokens = 4 } }
+                usage = new { prompt_tokens = 20, completion_tokens = 9, prompt_tokens_details = new { cached_tokens = 4, cache_write_tokens = 12 } }
             });
         }));
         var provider = CreateProvider(client, "azure-secret");
 
-        var result = await provider.TranslateAsync(Request());
+        var result = await provider.TranslateAsync(Request() with { SupportsPromptCache = true, PromptCacheKey = "cache-v1" });
 
         Assert.Equal("azure-request-1", result.ProviderRequestId);
         Assert.Equal(20, result.Usage.InputTokens);
         Assert.Equal(9, result.Usage.OutputTokens);
         Assert.Equal(4, result.Usage.CachedTokens);
+        Assert.Equal(12, result.Usage.CacheWriteTokens);
         Assert.Equal("https://resource.openai.azure.com/openai/deployments/gpt-deployment/chat/completions?api-version=2025-01-01-preview", capturedRequest!.RequestUri!.ToString());
         Assert.Equal("azure-secret", capturedRequest.Headers.GetValues("api-key").Single());
         var body = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
-        Assert.Equal("translate", body.GetProperty("messages")[0].GetProperty("content").GetString());
-        Assert.Contains("pt-BR", body.GetProperty("messages")[1].GetProperty("content").GetString());
+        Assert.Equal("cache-v1", body.GetProperty("prompt_cache_key").GetString());
+        Assert.Contains("translate", body.GetProperty("messages")[0].GetProperty("content").GetString());
+        Assert.Contains("Hello", body.GetProperty("messages")[1].GetProperty("content").GetString());
         Assert.Equal("Olá", result.Subtitles[0].Text);
         Assert.Equal(TimeSpan.FromSeconds(1), result.Subtitles[0].Start);
     }
