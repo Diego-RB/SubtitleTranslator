@@ -59,6 +59,40 @@ public sealed class PipelineStepConfigurationService(SubtitleTranslatorDbContext
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    public Task MoveUpAsync(int pipelineId, int id, CancellationToken cancellationToken = default) =>
+        MoveAsync(pipelineId, id, -1, cancellationToken);
+
+    public Task MoveDownAsync(int pipelineId, int id, CancellationToken cancellationToken = default) =>
+        MoveAsync(pipelineId, id, 1, cancellationToken);
+
+    private async Task MoveAsync(int pipelineId, int id, int direction, CancellationToken cancellationToken)
+    {
+        var steps = await db.PipelineSteps
+            .Where(step => step.PipelineId == pipelineId)
+            .OrderBy(step => step.Order)
+            .ThenBy(step => step.Id)
+            .ToListAsync(cancellationToken);
+        var currentIndex = steps.FindIndex(step => step.Id == id);
+        if (currentIndex < 0)
+        {
+            throw new KeyNotFoundException($"Pipeline step {id} was not found.");
+        }
+
+        var targetIndex = currentIndex + direction;
+        if (targetIndex < 0 || targetIndex >= steps.Count)
+        {
+            return;
+        }
+
+        (steps[currentIndex], steps[targetIndex]) = (steps[targetIndex], steps[currentIndex]);
+        for (var index = 0; index < steps.Count; index++)
+        {
+            steps[index].Order = index + 1;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
     private async Task ValidateAsync(PipelineStep step, int? providerId, CancellationToken cancellationToken)
     {
         if (step.PipelineId <= 0 || !await db.Pipelines.AnyAsync(pipeline => pipeline.Id == step.PipelineId, cancellationToken))

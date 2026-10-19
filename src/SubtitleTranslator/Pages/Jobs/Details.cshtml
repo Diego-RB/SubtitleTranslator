@@ -78,7 +78,7 @@
                         <div class="table-responsive"><table class="table table-sm mb-0"><thead><tr><th>#</th><th>Provider / model</th><th>Result</th><th>Tokens</th><th>Latency</th><th>Cost</th><th>Error</th></tr></thead><tbody>
                         @foreach (var attempt in chunk.Attempts.OrderBy(attempt => attempt.AttemptNumber))
                         {
-                            <tr><td>@attempt.AttemptNumber</td><td>@attempt.Provider<div class="small text-muted">@attempt.Model</div></td><td>@(attempt.Success ? "Success" : "Failed")</td><td>@attempt.InputTokens.ToString("N0") / @attempt.OutputTokens.ToString("N0")<div class="small text-muted">cached @attempt.CachedTokens.GetValueOrDefault().ToString("N0")</div></td><td>@attempt.LatencyMs.ToString("N0") ms</td><td>@attempt.EstimatedCost.ToString("C")</td><td class="text-break">@attempt.ErrorCode @attempt.ErrorMessage</td></tr>
+                            <tr><td>@attempt.AttemptNumber</td><td>@attempt.Provider<div class="small text-muted">@attempt.Model</div></td><td>@(attempt.Success ? "Success" : "Failed")</td><td>@attempt.InputTokens.ToString("N0") / @attempt.OutputTokens.ToString("N0")<div class="small text-muted">cached @attempt.CachedTokens.GetValueOrDefault().ToString("N0") · write @attempt.CacheWriteTokens.GetValueOrDefault().ToString("N0")</div></td><td>@attempt.LatencyMs.ToString("N0") ms</td><td>@attempt.EstimatedCost.ToString("C")</td><td class="text-break">@attempt.ErrorCode @attempt.ErrorMessage</td></tr>
                         }
                         </tbody></table></div>
                     }

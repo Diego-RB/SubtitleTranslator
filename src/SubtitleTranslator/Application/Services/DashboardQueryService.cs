@@ -234,6 +234,10 @@ public sealed record DashboardJobRow(
     public int ProgressPercent => TotalChunks <= 0
         ? Status == JobStatus.Completed ? 100 : 0
         : Math.Clamp((int)Math.Round(CompletedChunks * 100d / TotalChunks), 0, 100);
+
+    public TimeSpan? Duration => StartedAt is null
+        ? null
+        : (CompletedAt ?? DateTimeOffset.UtcNow) - StartedAt.Value;
 }
 
 public sealed record DashboardJobPage(

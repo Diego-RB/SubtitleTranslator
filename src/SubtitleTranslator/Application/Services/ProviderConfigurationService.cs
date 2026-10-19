@@ -8,7 +8,10 @@ namespace SubtitleTranslator.Application.Services;
 public sealed class ProviderConfigurationService(SubtitleTranslatorDbContext db)
 {
     public Task<List<Provider>> ListAsync(CancellationToken cancellationToken = default) =>
-        db.Providers.OrderBy(provider => provider.Name).ToListAsync(cancellationToken);
+        db.Providers
+            .Include(provider => provider.Models)
+            .OrderBy(provider => provider.Name)
+            .ToListAsync(cancellationToken);
 
     public Task<Provider?> GetAsync(int id, CancellationToken cancellationToken = default) =>
         db.Providers.SingleOrDefaultAsync(provider => provider.Id == id, cancellationToken);

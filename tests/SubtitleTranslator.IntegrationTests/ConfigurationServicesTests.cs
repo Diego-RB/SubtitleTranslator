@@ -70,8 +70,16 @@ public class ConfigurationServicesTests
         await stepService.CreateAsync(step, providerOne.Id);
         Assert.Equal(2, (await context.PipelineSteps.SingleAsync()).Order);
         await Assert.ThrowsAsync<ArgumentException>(() => stepService.CreateAsync(new PipelineStep { PipelineId = pipeline.Id, ModelDefinitionId = modelOne.Id, Order = 1 }, providerTwo.Id));
+        var secondStep = new PipelineStep { PipelineId = pipeline.Id, ModelDefinitionId = modelTwo.Id, Order = 5 };
+        await stepService.CreateAsync(secondStep, providerTwo.Id);
+        await stepService.MoveUpAsync(pipeline.Id, secondStep.Id);
+        var orderedSteps = await context.PipelineSteps.OrderBy(item => item.Order).ToListAsync();
+        Assert.Equal(secondStep.Id, orderedSteps[0].Id);
+        Assert.Equal(1, orderedSteps[0].Order);
+        Assert.Equal(step.Id, orderedSteps[1].Id);
+        Assert.Equal(2, orderedSteps[1].Order);
         await stepService.ToggleAsync(pipeline.Id, step.Id);
-        Assert.False((await context.PipelineSteps.SingleAsync()).Enabled);
+        Assert.False((await context.PipelineSteps.SingleAsync(item => item.Id == step.Id)).Enabled);
     }
 
     private static SubtitleTranslatorDbContext CreateContext()

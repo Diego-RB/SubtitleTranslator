@@ -17,6 +17,8 @@ public class IndexModel(SubtitleTranslatorDbContext db, PipelineStepConfiguratio
         Pipeline = await db.Pipelines.Include(item => item.Steps).ThenInclude(step => step.ModelDefinition).ThenInclude(model => model!.Provider).SingleOrDefaultAsync(item => item.Id == pipelineId);
         return Pipeline is null ? NotFound() : Page();
     }
+    public async Task<IActionResult> OnPostMoveUpAsync(int pipelineId, int id) { try { await service.MoveUpAsync(pipelineId, id); Message = "Step order updated."; } catch (Exception ex) { ErrorMessage = ex.Message; } return RedirectToPage(new { pipelineId }); }
+    public async Task<IActionResult> OnPostMoveDownAsync(int pipelineId, int id) { try { await service.MoveDownAsync(pipelineId, id); Message = "Step order updated."; } catch (Exception ex) { ErrorMessage = ex.Message; } return RedirectToPage(new { pipelineId }); }
     public async Task<IActionResult> OnPostToggleAsync(int pipelineId, int id) { try { await service.ToggleAsync(pipelineId, id); Message = "Step status updated."; } catch (Exception ex) { ErrorMessage = ex.Message; } return RedirectToPage(new { pipelineId }); }
     public async Task<IActionResult> OnPostDeleteAsync(int pipelineId, int id) { try { await service.DeleteAsync(pipelineId, id); Message = "Step removed."; } catch (Exception ex) { ErrorMessage = ex.Message; } return RedirectToPage(new { pipelineId }); }
 }

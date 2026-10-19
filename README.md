@@ -10,11 +10,12 @@ O runtime inclui:
 
 - ASP.NET Core Razor Pages, EF Core e SQLite com migrations;
 - parser, writer, validator e chunker SRT;
-- adapters Ollama, OpenRouter e Azure OpenAI síncrono, além do ciclo Azure Batch;
-- pipelines configuráveis com fallback, retry seletivo e prompt versionado por job;
+- adapters Ollama, OpenRouter, OpenAI-Compatible e Azure OpenAI síncrono, além do ciclo Azure Batch com suporte a Prompt Caching (`prompt_cache_key` e `cache_write_tokens`);
+- pipelines configuráveis com fallback, retry seletivo, paralelismo configurável (`maxParallelRequests`) e prompt versionado por job;
+- gerenciamento de templates e versões de prompts (**Prompts**) com seed automático de prompt padrão EN -> pt-BR;
 - scanner, worker, heartbeat e recuperação de jobs/batches após restart;
 - página Defaults para selecionar pipeline e prompt padrão;
-- dashboard Home, listagem filtrável de jobs e detalhes com chunks, tentativas, tokens, custos, erros e timeline;
+- dashboard Home, listagem filtrável de jobs (com duração) e detalhes com chunks, tentativas, tokens, custos (incluindo `batchDiscountPercent`), erros e timeline;
 - health endpoints para liveness, readiness (SQLite) e status agregado.
 
 A aplicação continua em desenvolvimento. Os probes periódicos verificam endpoint/autenticação; para Ollama também confirmam models instalados. Verificação de deployment Azure e contas individuais/auditoria de operadores continuam como limitações conhecidas.
@@ -108,10 +109,10 @@ O arquivo `.env` local é ignorado pelo Git. Use um mecanismo seguro de secrets 
 1. Inicie a aplicação.
 2. Abra a página **Providers**.
 3. Crie um provider e informe o `CredentialId` como nome da variável de ambiente.
-4. Crie um model associado ao provider.
+4. Crie um model associado ao provider (incluindo tarifas por 1M tokens e configuração JSON opcional para `batchDiscountPercent` ou `maxParallelRequests`).
 5. Configure a estratégia e os limites de chunking.
-6. Crie um pipeline.
-7. Adicione e ordene os pipeline steps usando os models configurados.
+6. Crie um pipeline e ordene os steps usando os botões de prioridade (↑ / ↓).
+7. Em **Prompts**, gerencie templates, crie novas versões com glossário e configure `SupportsPromptCache` / `PromptCacheKey`.
 8. Em **Defaults**, escolha o pipeline e a versão de prompt para novos jobs.
 9. Confirme que os diretórios monitorados estão corretos na seção `Scanner` do `appsettings.json`.
 
@@ -129,16 +130,18 @@ Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatc
 
 O executor usa o `PipelineId` e `PromptVersionId` fixados no job. Cada step usa sua própria política de chunks; se um provider falhar, somente legendas ainda não traduzidas avançam para o próximo step. A saída `.pt-BR.srt` é criada atomicamente após validação completa. O worker detecta arquivos, recupera jobs interrompidos e mantém heartbeat.
 
-Retries síncronos adicionais são opt-in na configuração do model:
+Opções avançadas via JSON na configuração do model (`ConfigurationJson`):
 
 ```json
 {
     "pipelineMaxAttempts": 2,
-    "pipelineRetryDelayMilliseconds": 1000
+    "pipelineRetryDelayMilliseconds": 1000,
+    "maxParallelRequests": 2,
+    "batchDiscountPercent": 50
 }
 ```
 
-O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativas, tokens, latência e custo estimado são registrados no SQLite por chunk. A versão do prompt é fixada no job para que uma retomada use o mesmo texto/glossário configurado.
+O padrão é uma tentativa; o número configurado é limitado a cinco. Tentativas, tokens (incluindo `cached_tokens` e `cache_write_tokens`), latência e custo estimado são registrados no SQLite por chunk. A versão do prompt é fixada no job para que uma retomada use o mesmo texto/glossário configurado.
 
 ## Executar em Linux com systemd
 

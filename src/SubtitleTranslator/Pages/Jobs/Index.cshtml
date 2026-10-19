@@ -38,11 +38,11 @@
 </form>
 <div class="table-responsive">
     <table class="table table-striped table-hover align-middle">
-        <thead><tr><th>Source</th><th>Status</th><th>Progress</th><th>Provider / model</th><th>Created</th><th>Cost</th><th></th></tr></thead>
+        <thead><tr><th>Source</th><th>Status</th><th>Progress</th><th>Provider / model</th><th>Duration</th><th>Created</th><th>Cost</th><th></th></tr></thead>
         <tbody>
         @if (Model.JobPage.Jobs.Count == 0)
         {
-            <tr><td colspan="7" class="text-center text-muted py-4">No jobs match these filters.</td></tr>
+            <tr><td colspan="8" class="text-center text-muted py-4">No jobs match these filters.</td></tr>
         }
         @foreach (var job in Model.JobPage.Jobs)
         {
@@ -51,6 +51,7 @@
                 <td><span class="badge text-bg-secondary">@job.Status</span>@if (job.FailedChunks > 0) { <div class="small text-danger">@job.FailedChunks failed chunk(s)</div> }</td>
                 <td style="min-width: 150px"><div class="d-flex justify-content-between small"><span>@job.CompletedChunks / @job.TotalChunks chunks</span><span>@job.ProgressPercent%</span></div><div class="progress" role="progressbar" aria-valuenow="@job.ProgressPercent" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: @job.ProgressPercent%"></div></div></td>
                 <td>@(job.CurrentProvider ?? "—")<div class="small text-muted">@(job.CurrentModel ?? "")</div></td>
+                <td class="text-nowrap">@(job.Duration?.ToString(@"hh\:mm\:ss") ?? "—")</td>
                 <td class="text-nowrap">@job.CreatedAt.ToLocalTime().ToString("g")</td>
                 <td class="text-nowrap">@job.EstimatedCost.ToString("C")</td>
                 <td><a class="btn btn-sm btn-outline-primary" asp-page="Details" asp-route-id="@job.Id">Details</a></td>

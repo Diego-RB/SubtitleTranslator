@@ -1,0 +1,44 @@
+@page "{id:int}"
+@model SubtitleTranslator.Pages.Prompts.EditVersionModel
+@{
+    ViewData["Title"] = "Edit prompt version";
+}
+<h1>Edit prompt version</h1>
+<p class="text-muted">@Model.Version?.PromptTemplate?.Name · v@Model.Version?.Version</p>
+<form method="post">
+    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+    <input asp-for="Input.Id" type="hidden" />
+    <input asp-for="Input.PromptTemplateId" type="hidden" />
+    <div class="row">
+        <div class="col-md-6 mb-3">
+            <label asp-for="Input.Name" class="form-label">Version label</label>
+            <input asp-for="Input.Name" class="form-control" />
+        </div>
+        <div class="col-md-6 mb-3">
+            <label asp-for="Input.PromptCacheKey" class="form-label">Prompt cache key (Azure GPT-5.6+)</label>
+            <input asp-for="Input.PromptCacheKey" class="form-control" />
+        </div>
+    </div>
+    <div class="row mb-3">
+        <div class="col-md-4 form-check ms-2">
+            <input asp-for="Input.Enabled" class="form-check-input" />
+            <label asp-for="Input.Enabled" class="form-check-label">Enabled</label>
+        </div>
+        <div class="col-md-6 form-check">
+            <input asp-for="Input.SupportsPromptCache" class="form-check-input" />
+            <label asp-for="Input.SupportsPromptCache" class="form-check-label">Enable prompt caching (places static prefix &amp; glossary first)</label>
+        </div>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.StaticContent" class="form-label">Static prompt instructions</label>
+        <textarea asp-for="Input.StaticContent" class="form-control" rows="8"></textarea>
+        <span asp-validation-for="Input.StaticContent" class="text-danger"></span>
+    </div>
+    <div class="mb-3">
+        <label asp-for="Input.GlossaryJson" class="form-label">Glossary / examples (optional JSON or text)</label>
+        <textarea asp-for="Input.GlossaryJson" class="form-control" rows="5"></textarea>
+    </div>
+    <button class="btn btn-primary" type="submit">Save version</button>
+    <a class="btn btn-secondary" asp-page="Index">Cancel</a>
+</form>
+@section Scripts { <partial name="_ValidationScriptsPartial" /> }
