@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using System.Net;
@@ -59,6 +60,7 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         options.SlidingExpiration = true;
     });
 builder.Services.AddAuthorization();
+builder.Services.AddDataProtection().SetApplicationName("SubtitleTranslator");
 var trustedProxyAddresses = builder.Configuration.GetSection("ReverseProxy:KnownProxies").Get<string[]>() ?? [];
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
@@ -115,8 +117,10 @@ builder.Services.AddScoped<PipelineConfigurationService>();
 builder.Services.AddScoped<PipelineStepConfigurationService>();
 builder.Services.AddScoped<PromptConfigurationService>();
 builder.Services.AddScoped<DashboardQueryService>();
+builder.Services.AddScoped<TranslationJobRetryService>();
 builder.Services.AddScoped<TranslationMetricsService>();
 builder.Services.AddSingleton<ProviderHealthRegistry>();
+builder.Services.AddSingleton<WorkerRuntimeStatus>();
 builder.Services.AddHttpClient<ProviderHealthCheckService>();
 builder.Services.AddScoped<OrchestratorSettingsService>();
 builder.Services.AddScoped<AzureBatchJobStateService>();
@@ -130,6 +134,7 @@ builder.Services.AddHostedService<ProviderHealthWorker>();
 builder.Services.AddHttpClient<OllamaProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>
     serviceProvider.GetRequiredService<OllamaProvider>());
+builder.Services.AddSingleton<IProviderApiKeyProtector, DataProtectionProviderApiKeyProtector>();
 builder.Services.AddSingleton<ICredentialResolver, EnvironmentCredentialResolver>();
 builder.Services.AddHttpClient<OpenRouterProvider>();
 builder.Services.AddSingleton<ITranslationProvider>(serviceProvider =>

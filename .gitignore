@@ -5,3 +5,5 @@ obj/
 *.db-wal
 .vs/
 .env
+.aspnet/
+.data-protection-keys/

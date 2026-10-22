@@ -39,11 +39,86 @@ public class AzureOpenAiProviderTests
         Assert.Equal("https://resource.openai.azure.com/openai/deployments/gpt-deployment/chat/completions?api-version=2025-01-01-preview", capturedRequest!.RequestUri!.ToString());
         Assert.Equal("azure-secret", capturedRequest.Headers.GetValues("api-key").Single());
         var body = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        Assert.Equal(512, body.GetProperty("max_tokens").GetInt32());
+        Assert.False(body.TryGetProperty("max_completion_tokens", out _));
         Assert.Equal("cache-v1", body.GetProperty("prompt_cache_key").GetString());
         Assert.Contains("translate", body.GetProperty("messages")[0].GetProperty("content").GetString());
         Assert.Contains("Hello", body.GetProperty("messages")[1].GetProperty("content").GetString());
         Assert.Equal("Olá", result.Subtitles[0].Text);
         Assert.Equal(TimeSpan.FromSeconds(1), result.Subtitles[0].Start);
+    }
+
+    [Theory]
+    [InlineData("https://resource.services.ai.azure.com/openai/v1", "https://resource.services.ai.azure.com/openai/v1/chat/completions")]
+    [InlineData("https://resource.services.ai.azure.com/openai/v1/responses", "https://resource.services.ai.azure.com/openai/v1/chat/completions")]
+    public async Task TranslateAsync_UsesAzureV1ChatCompletionsEndpointAndHeaders(string baseUrl, string expectedEndpoint)
+    {
+        HttpRequestMessage? capturedRequest = null;
+        string? capturedBody = null;
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            capturedRequest = request;
+            capturedBody = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return JsonResponse(new
+            {
+                id = "azure-v1-request",
+                choices = new[] { new { message = new { content = "[{\"index\":1,\"text\":\"Olá\"},{\"index\":2,\"text\":\"Mundo\"}]" } } },
+                usage = new { prompt_tokens = 20, completion_tokens = 9 }
+            });
+        }));
+        var provider = CreateProvider(client, "azure-v1-secret");
+        var request = Request() with
+        {
+            Provider = Request().Provider with
+            {
+                BaseUrl = baseUrl,
+                AuthenticationType = "AzureKeyCredential",
+                ApiVersion = null
+            },
+            Model = Request().Model with { DeploymentName = "gpt-6-luna", Temperature = null, TopP = null },
+            SupportsPromptCache = true,
+            PromptCacheKey = "cache-v1"
+        };
+
+        var result = await provider.TranslateAsync(request);
+
+        Assert.Equal(expectedEndpoint, capturedRequest!.RequestUri!.ToString());
+        Assert.Equal("azure-v1-secret", capturedRequest.Headers.GetValues("api-key").Single());
+        Assert.Equal("Bearer", capturedRequest.Headers.Authorization?.Scheme);
+        Assert.Equal("azure-v1-secret", capturedRequest.Headers.Authorization?.Parameter);
+        var body = JsonSerializer.Deserialize<JsonElement>(capturedBody!);
+        Assert.Equal("gpt-6-luna", body.GetProperty("model").GetString());
+        Assert.Equal(512, body.GetProperty("max_completion_tokens").GetInt32());
+        Assert.False(body.TryGetProperty("max_tokens", out _));
+        Assert.False(body.TryGetProperty("temperature", out _));
+        Assert.False(body.TryGetProperty("top_p", out _));
+        Assert.False(body.TryGetProperty("prompt_cache_key", out _));
+        Assert.Equal("Olá", result.Subtitles[0].Text);
+    }
+
+    [Fact]
+    public async Task TranslateAsync_IncludesAzureErrorCodeAndMessageWithoutCredential()
+    {
+        using var client = new HttpClient(new StubHandler(_ => new HttpResponseMessage(HttpStatusCode.BadRequest)
+        {
+            Content = JsonContent.Create(new { error = new { code = "BadRequest", message = "Invalid model parameter" } })
+        }));
+        var provider = CreateProvider(client, "azure-private-key");
+        var request = Request() with
+        {
+            Provider = Request().Provider with
+            {
+                BaseUrl = "https://resource.services.ai.azure.com/openai/v1",
+                ApiVersion = null
+            },
+            Model = Request().Model with { ConfigurationJson = "{\"maxRetries\":0}" }
+        };
+
+        var exception = await Assert.ThrowsAsync<AzureOpenAiProviderException>(() => provider.TranslateAsync(request));
+
+        Assert.Contains("BadRequest", exception.Message);
+        Assert.Contains("Invalid model parameter", exception.Message);
+        Assert.DoesNotContain("azure-private-key", exception.Message);
     }
 
     [Fact]

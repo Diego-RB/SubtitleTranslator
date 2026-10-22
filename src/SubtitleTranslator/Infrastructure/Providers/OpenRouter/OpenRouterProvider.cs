@@ -35,11 +35,10 @@ public sealed class OpenRouterProvider(
         string? apiKey = null;
         if (!string.Equals(request.Provider.AuthenticationType, "None", StringComparison.OrdinalIgnoreCase))
         {
-            apiKey = credentialResolver.Resolve(request.Provider.CredentialId);
+            apiKey = credentialResolver.Resolve(request.Provider.CredentialId, request.Provider.ProtectedApiKey);
             if (string.IsNullOrWhiteSpace(apiKey))
             {
-                throw new InvalidOperationException(
-                    $"Credential '{request.Provider.CredentialId}' was not found in the environment.");
+                throw new InvalidOperationException("Configured OpenRouter credential is unavailable.");
             }
         }
 
@@ -79,31 +78,31 @@ public sealed class OpenRouterProvider(
                     }
                     AddOptionalHeaders(httpRequest, options);
 
-                using var response = await httpClient.SendAsync(
-                    httpRequest,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    timeout.Token);
-                var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
+                    using var response = await httpClient.SendAsync(
+                        httpRequest,
+                        HttpCompletionOption.ResponseHeadersRead,
+                        timeout.Token);
+                    var responseBody = await response.Content.ReadAsStringAsync(timeout.Token);
 
-                if (!response.IsSuccessStatusCode)
-                {
-                    var transient = IsTransient(response.StatusCode);
-                    if (transient && attempt < options.MaxRetries)
+                    if (!response.IsSuccessStatusCode)
                     {
-                        await DelayBeforeRetryAsync(response, attempt, options, cancellationToken);
-                        continue;
-                    }
+                        var transient = IsTransient(response.StatusCode);
+                        if (transient && attempt < options.MaxRetries)
+                        {
+                            await DelayBeforeRetryAsync(response, attempt, options, cancellationToken);
+                            continue;
+                        }
 
-                    logger.LogWarning(
-                        "OpenRouter request failed with status {StatusCode} after {Attempts} attempt(s) for model {Model}",
-                        (int)response.StatusCode,
-                        attempt + 1,
-                        request.Model.ModelId);
-                    throw new OpenRouterProviderException(
-                        $"OpenRouter returned HTTP {(int)response.StatusCode}.",
-                        (int)response.StatusCode,
-                        transient);
-                }
+                        logger.LogWarning(
+                            "OpenRouter request failed with status {StatusCode} after {Attempts} attempt(s) for model {Model}",
+                            (int)response.StatusCode,
+                            attempt + 1,
+                            request.Model.ModelId);
+                        throw new OpenRouterProviderException(
+                            $"OpenRouter returned HTTP {(int)response.StatusCode}.",
+                            (int)response.StatusCode,
+                            transient);
+                    }
 
                     return ParseResponse(responseBody, request.Subtitles, stopwatch.ElapsedMilliseconds);
                 }
@@ -153,9 +152,10 @@ public sealed class OpenRouterProvider(
         }
 
         if (!string.Equals(request.Provider.AuthenticationType, "None", StringComparison.OrdinalIgnoreCase)
-            && string.IsNullOrWhiteSpace(request.Provider.CredentialId))
+            && string.IsNullOrWhiteSpace(request.Provider.CredentialId)
+            && string.IsNullOrWhiteSpace(request.Provider.ProtectedApiKey))
         {
-            throw new InvalidOperationException("OpenRouter CredentialId is required.");
+            throw new InvalidOperationException("OpenRouter credential is required.");
         }
 
         if (string.IsNullOrWhiteSpace(request.Model.ModelId))

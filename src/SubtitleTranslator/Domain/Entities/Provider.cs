@@ -10,6 +10,7 @@ public class Provider
     public string? BaseUrl { get; set; }
     public AuthenticationType AuthenticationType { get; set; }
     public string? CredentialId { get; set; }
+    public string? ProtectedApiKey { get; set; }
     public string? ApiVersion { get; set; }
     public bool Enabled { get; set; } = true;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

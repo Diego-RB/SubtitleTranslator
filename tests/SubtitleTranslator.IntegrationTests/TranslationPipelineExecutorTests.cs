@@ -80,6 +80,9 @@ public class TranslationPipelineExecutorTests
             Assert.Equal(2, job.RetryCount);
             Assert.True(File.Exists(outputPath));
             var output = new SrtParser().Parse(await File.ReadAllTextAsync(outputPath));
+            var recordedAttempts = await db.Attempts.ToListAsync();
+            Assert.Equal(3, recordedAttempts.Count(attempt => attempt.AttemptNumber == 1));
+            Assert.Single(recordedAttempts, attempt => attempt.AttemptNumber == 2);
             Assert.Equal("pt-Hello", output[0].Text);
             Assert.Equal(TimeSpan.FromSeconds(1), output[0].Start);
             Assert.Equal("pt-World", output[1].Text);
@@ -206,6 +209,17 @@ public class TranslationPipelineExecutorTests
             var output = new SrtParser().Parse(await File.ReadAllTextAsync(outputPath));
             Assert.Equal("translated-first", output[0].Text);
             Assert.Equal("translated-second", output[1].Text);
+
+            File.Delete(outputPath);
+            job.Status = JobStatus.Completed;
+            job.CompletedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            var restored = await CreateExecutor(db, [afterRestartProvider]).ExecuteJobAsync(job.Id);
+
+            Assert.True(restored.Succeeded);
+            Assert.True(File.Exists(outputPath));
+            Assert.Equal([2], afterRestartProvider.RequestedSubtitleIndexes);
+            Assert.Equal("translated-first", new SrtParser().Parse(await File.ReadAllTextAsync(outputPath))[0].Text);
         }
         finally
         {

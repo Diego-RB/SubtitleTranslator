@@ -13,7 +13,10 @@ public static class TranslationConfigurationMapper
             provider.BaseUrl,
             provider.AuthenticationType.ToString(),
             provider.CredentialId,
-            provider.ApiVersion);
+            provider.ApiVersion)
+        {
+            ProtectedApiKey = provider.ProtectedApiKey
+        };
 
     public static ModelConfiguration ToConfiguration(this ModelDefinition model) =>
         new(

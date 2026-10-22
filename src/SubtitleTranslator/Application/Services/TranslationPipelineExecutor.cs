@@ -34,7 +34,10 @@ public sealed class TranslationPipelineExecutor(
     {
         var job = await db.Jobs.SingleOrDefaultAsync(item => item.Id == jobId, cancellationToken)
             ?? throw new KeyNotFoundException($"Translation job {jobId} was not found.");
-        if (job.Status == JobStatus.Completed)
+        if (job.Status == JobStatus.Completed
+            && File.Exists(string.IsNullOrWhiteSpace(job.OutputPath)
+                ? Path.Combine(Path.GetDirectoryName(Path.GetFullPath(job.SourcePath))!, $"{Path.GetFileNameWithoutExtension(job.SourcePath)}.pt-BR.srt")
+                : job.OutputPath))
         {
             return new(job.Id, true, job.OutputPath, job.CompletedChunks, 0, 0, job.EstimatedCost, []);
         }
@@ -260,7 +263,12 @@ public sealed class TranslationPipelineExecutor(
         await db.SaveChangesAsync(cancellationToken);
 
         var defaultParallelism = provider.Type == ProviderType.Ollama ? 1 : 1;
-        var maxParallel = Math.Clamp(ReadInt(model.ConfigurationJson, "maxParallelRequests") ?? defaultParallelism, 1, 16);
+        var maxParallel = Math.Clamp(
+            ReadInt(model.ConfigurationJson, "pipelineMaxParallelRequests")
+                ?? ReadInt(model.ConfigurationJson, "maxParallelRequests")
+                ?? defaultParallelism,
+            1,
+            16);
         var maxAttempts = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineMaxAttempts") ?? 1, 1, 5);
         var retryDelayMilliseconds = Math.Clamp(ReadInt(model.ConfigurationJson, "pipelineRetryDelayMilliseconds") ?? 1000, 0, 60_000);
         using var dbGate = new SemaphoreSlim(1, 1);
@@ -313,7 +321,7 @@ public sealed class TranslationPipelineExecutor(
                         await dbGate.WaitAsync(token);
                         try
                         {
-                            chunk.Attempt = attempt;
+                            chunk.Attempt = attempt - 1;
                             RecordFailedAttempt(job, chunk, provider, model, exception);
                             chunk.Status = attempt < maxAttempts ? ChunkStatus.Processing : ChunkStatus.RetryPending;
                             chunk.Error = exception.Message;
@@ -482,15 +490,17 @@ public sealed class TranslationPipelineExecutor(
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            if (!string.IsNullOrWhiteSpace(job.AzureBatchId) && !IsTerminalBatchStatus(job.AzureBatchStatus ?? string.Empty))
+            var batchIdToCancel = activeBatchId ?? job.AzureBatchId;
+            if (!string.IsNullOrWhiteSpace(batchIdToCancel)
+                && (activeBatchId is not null || !IsTerminalBatchStatus(job.AzureBatchStatus ?? string.Empty)))
             {
                 try
                 {
-                    await batchProvider.CancelBatchAsync(provider.ToConfiguration(), job.AzureBatchId, CancellationToken.None);
+                    await batchProvider.CancelBatchAsync(provider.ToConfiguration(), batchIdToCancel, CancellationToken.None);
                 }
                 catch (Exception cancellationException)
                 {
-                    logger.LogWarning(cancellationException, "Could not cancel Azure Batch {BatchId} for job {JobId}", job.AzureBatchId, job.Id);
+                    logger.LogWarning(cancellationException, "Could not cancel Azure Batch {BatchId} for job {JobId}", batchIdToCancel, job.Id);
                 }
             }
 

@@ -37,7 +37,7 @@ Metrics__AccessToken=replace-with-a-different-unique-random-token-of-at-least-32
 # Scanner__Directories__1=/media/qbittorrent
 ```
 
-Do not put secret values in the unit file, SQLite database, source control, or command-line arguments. Configure each provider's `CredentialId` to the corresponding environment-variable name. Rotate any credentials inherited from the legacy script.
+Provider API keys can be entered in the dashboard's **Credential** password field; they are protected with ASP.NET Core Data Protection before storage in SQLite. Keep the Data Protection key ring under the service account's local data directory (`/var/lib/subtitletranslator/.aspnet/DataProtection-Keys` by default), restrict access to the service account, and back it up together with the database. Losing the key ring makes protected credentials unreadable. Legacy environment-variable references remain supported through **Advanced → Credential ID**. The app does not load `.env` files automatically. Rotate any credentials inherited from the legacy script.
 
 Generate the two access tokens independently (for example, `openssl rand -hex 32`) and replace both placeholders before starting the service. Production startup fails if either token is missing or shorter than 32 characters. The dashboard token is entered on `/Login` and creates an eight-hour HttpOnly/Secure cookie; the metrics token is sent as an HTTP Bearer credential. This is a single shared operator token, not per-user identity or audit logging.
 

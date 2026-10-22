@@ -7,7 +7,8 @@ namespace SubtitleTranslator.Application.Services;
 
 public sealed class DashboardQueryService(
     SubtitleTranslatorDbContext db,
-    ProviderHealthRegistry providerHealthRegistry)
+    ProviderHealthRegistry providerHealthRegistry,
+    WorkerRuntimeStatus workerRuntimeStatus)
 {
     private static readonly JobStatus[] TerminalStatuses =
     [
@@ -84,7 +85,11 @@ public sealed class DashboardQueryService(
                 job.StartedAt,
                 job.CompletedAt,
                 job.EstimatedCost,
-                job.AzureBatchId))
+                job.AzureBatchId,
+                job.AzureBatchStatus,
+                job.AzureBatchTotalRequests,
+                job.AzureBatchCompletedRequests,
+                job.AzureBatchFailedRequests))
             .ToListAsync(cancellationToken);
         var completedAtValues = await db.Jobs
             .AsNoTracking()
@@ -93,7 +98,7 @@ public sealed class DashboardQueryService(
             .ToListAsync(cancellationToken);
 
         return new DashboardOverview(
-            IsApplicationOnline: true,
+            IsWorkerOnline: workerRuntimeStatus.IsOnline,
             ActiveJobs: activeJobs.Count,
             QueuedJobs: activeJobs.Count(job => QueueStatuses.Contains(job.Status)),
             CompletedToday: completedAtValues.Count(completedAt =>
@@ -107,6 +112,65 @@ public sealed class DashboardQueryService(
                     : job.LastHeartbeatAt ?? job.LastActivityAt ?? job.UpdatedAt) <= now - stalledThreshold),
             Providers: providers,
             RecentJobs: recentJobs);
+    }
+
+    public async Task<JobLiveUpdate?> GetJobLiveUpdateAsync(
+        int id,
+        CancellationToken cancellationToken = default)
+    {
+        var job = await db.Jobs
+            .AsNoTracking()
+            .Where(job => job.Id == id)
+            .Select(job => new
+            {
+                job.Id,
+                job.Status,
+                job.TotalChunks,
+                job.CompletedChunks,
+                job.FailedChunks,
+                job.CurrentProvider,
+                job.CurrentModel,
+                job.InputTokens,
+                job.OutputTokens,
+                job.RetryCount,
+                job.EstimatedCost,
+                job.StartedAt,
+                job.CompletedAt,
+                job.UpdatedAt,
+                job.LastActivityAt,
+                job.AzureBatchId,
+                job.AzureBatchStatus,
+                job.AzureBatchTotalRequests,
+                job.AzureBatchCompletedRequests,
+                job.AzureBatchFailedRequests,
+                job.LastError
+            })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return job is null
+            ? null
+            : new JobLiveUpdate(
+                job.Id,
+                job.Status.ToString(),
+                job.TotalChunks,
+                job.CompletedChunks,
+                job.FailedChunks,
+                job.CurrentProvider,
+                job.CurrentModel,
+                job.InputTokens,
+                job.OutputTokens,
+                job.RetryCount,
+                job.EstimatedCost,
+                job.StartedAt,
+                job.CompletedAt,
+                job.UpdatedAt,
+                job.LastActivityAt,
+                job.AzureBatchId,
+                job.AzureBatchStatus,
+                job.AzureBatchTotalRequests,
+                job.AzureBatchCompletedRequests,
+                job.AzureBatchFailedRequests,
+                job.LastError);
     }
 
     public async Task<DashboardJobPage> GetJobsAsync(
@@ -152,7 +216,11 @@ public sealed class DashboardQueryService(
                 job.StartedAt,
                 job.CompletedAt,
                 job.EstimatedCost,
-                job.AzureBatchId))
+                job.AzureBatchId,
+                job.AzureBatchStatus,
+                job.AzureBatchTotalRequests,
+                job.AzureBatchCompletedRequests,
+                job.AzureBatchFailedRequests))
             .ToListAsync(cancellationToken);
 
         return new DashboardJobPage(jobs, totalCount, page, totalPages, search, status);
@@ -188,7 +256,7 @@ public sealed class DashboardQueryService(
 }
 
 public sealed record DashboardOverview(
-    bool IsApplicationOnline,
+    bool IsWorkerOnline,
     int ActiveJobs,
     int QueuedJobs,
     int CompletedToday,
@@ -196,6 +264,55 @@ public sealed record DashboardOverview(
     int StalledJobs,
     IReadOnlyList<DashboardProvider> Providers,
     IReadOnlyList<DashboardJobRow> RecentJobs);
+
+public sealed record JobLiveUpdate(
+    int Id,
+    string Status,
+    int TotalChunks,
+    int CompletedChunks,
+    int FailedChunks,
+    string? CurrentProvider,
+    string? CurrentModel,
+    long InputTokens,
+    long OutputTokens,
+    int RetryCount,
+    decimal EstimatedCost,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? CompletedAt,
+    DateTimeOffset UpdatedAt,
+    DateTimeOffset? LastActivityAt,
+    string? AzureBatchId,
+    string? AzureBatchStatus,
+    int? AzureBatchTotalRequests,
+    int? AzureBatchCompletedRequests,
+    int? AzureBatchFailedRequests,
+    string? LastError)
+{
+    public int ProgressPercent => HasActiveBatchProgress
+        ? CalculateBatchProgressPercent(AzureBatchTotalRequests, AzureBatchCompletedRequests, AzureBatchFailedRequests)
+        : TotalChunks <= 0
+            ? Status == JobStatus.Completed.ToString() ? 100 : 0
+            : Math.Clamp((int)Math.Round(CompletedChunks * 100d / TotalChunks), 0, 100);
+
+    public string ProgressLabel => HasActiveBatchProgress
+        ? $"Batch: {AzureBatchCompletedRequests.GetValueOrDefault() + AzureBatchFailedRequests.GetValueOrDefault()} / {AzureBatchTotalRequests} requests"
+        : $"{CompletedChunks} / {TotalChunks} chunks";
+
+    private bool HasActiveBatchProgress =>
+        !string.IsNullOrWhiteSpace(AzureBatchId)
+        && AzureBatchTotalRequests > 0
+        && AzureBatchStatus is not null
+        && !AzureBatchStatus.Equals("completed", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("failed", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("expired", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("canceled", StringComparison.OrdinalIgnoreCase);
+
+    private static int CalculateBatchProgressPercent(int? total, int? completed, int? failed) =>
+        total.GetValueOrDefault() <= 0
+            ? 0
+            : Math.Clamp((int)Math.Round((completed.GetValueOrDefault() + failed.GetValueOrDefault()) * 100d / total!.Value), 0, 100);
+}
 
 public sealed record DashboardProvider(
     int Id,
@@ -229,11 +346,33 @@ public sealed record DashboardJobRow(
     DateTimeOffset? StartedAt,
     DateTimeOffset? CompletedAt,
     decimal EstimatedCost,
-    string? AzureBatchId)
+    string? AzureBatchId,
+    string? AzureBatchStatus = null,
+    int? AzureBatchTotalRequests = null,
+    int? AzureBatchCompletedRequests = null,
+    int? AzureBatchFailedRequests = null)
 {
-    public int ProgressPercent => TotalChunks <= 0
-        ? Status == JobStatus.Completed ? 100 : 0
-        : Math.Clamp((int)Math.Round(CompletedChunks * 100d / TotalChunks), 0, 100);
+    private bool HasActiveBatchProgress =>
+        !string.IsNullOrWhiteSpace(AzureBatchId)
+        && AzureBatchTotalRequests > 0
+        && AzureBatchStatus is not null
+        && !AzureBatchStatus.Equals("completed", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("failed", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("expired", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("cancelled", StringComparison.OrdinalIgnoreCase)
+        && !AzureBatchStatus.Equals("canceled", StringComparison.OrdinalIgnoreCase);
+
+    public int ProgressPercent => HasActiveBatchProgress
+        ? AzureBatchTotalRequests.GetValueOrDefault() <= 0
+            ? 0
+            : Math.Clamp((int)Math.Round((AzureBatchCompletedRequests.GetValueOrDefault() + AzureBatchFailedRequests.GetValueOrDefault()) * 100d / AzureBatchTotalRequests!.Value), 0, 100)
+        : TotalChunks <= 0
+            ? Status == JobStatus.Completed ? 100 : 0
+            : Math.Clamp((int)Math.Round(CompletedChunks * 100d / TotalChunks), 0, 100);
+
+    public string ProgressLabel => HasActiveBatchProgress
+        ? $"Batch: {AzureBatchCompletedRequests.GetValueOrDefault() + AzureBatchFailedRequests.GetValueOrDefault()} / {AzureBatchTotalRequests} requests"
+        : $"{CompletedChunks} / {TotalChunks} chunks";
 
     public TimeSpan? Duration => StartedAt is null
         ? null

@@ -1,11 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Domain.Entities;
 using SubtitleTranslator.Domain.Enums;
 using SubtitleTranslator.Infrastructure.Persistence;
 
 namespace SubtitleTranslator.Application.Services;
 
-public sealed class ProviderConfigurationService(SubtitleTranslatorDbContext db)
+public sealed class ProviderConfigurationService(
+    SubtitleTranslatorDbContext db,
+    IProviderApiKeyProtector? apiKeyProtector = null)
 {
     public Task<List<Provider>> ListAsync(CancellationToken cancellationToken = default) =>
         db.Providers
@@ -16,14 +19,33 @@ public sealed class ProviderConfigurationService(SubtitleTranslatorDbContext db)
     public Task<Provider?> GetAsync(int id, CancellationToken cancellationToken = default) =>
         db.Providers.SingleOrDefaultAsync(provider => provider.Id == id, cancellationToken);
 
-    public async Task CreateAsync(Provider provider, CancellationToken cancellationToken = default)
+    public Task CreateAsync(Provider provider, CancellationToken cancellationToken = default) =>
+        CreateAsync(provider, null, cancellationToken);
+
+    public async Task CreateAsync(
+        Provider provider,
+        string? apiKey,
+        CancellationToken cancellationToken = default)
     {
         Validate(provider);
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            provider.ProtectedApiKey = ProtectApiKey(apiKey);
+            provider.CredentialId = null;
+        }
+
         db.Providers.Add(provider);
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    public async Task UpdateAsync(Provider input, CancellationToken cancellationToken = default)
+    public Task UpdateAsync(Provider input, CancellationToken cancellationToken = default) =>
+        UpdateAsync(input, null, false, cancellationToken);
+
+    public async Task UpdateAsync(
+        Provider input,
+        string? apiKey,
+        bool removeStoredApiKey = false,
+        CancellationToken cancellationToken = default)
     {
         var provider = await db.Providers.SingleOrDefaultAsync(item => item.Id == input.Id, cancellationToken)
             ?? throw new KeyNotFoundException($"Provider {input.Id} was not found.");
@@ -33,12 +55,31 @@ public sealed class ProviderConfigurationService(SubtitleTranslatorDbContext db)
         provider.Type = input.Type;
         provider.BaseUrl = input.BaseUrl;
         provider.AuthenticationType = input.AuthenticationType;
-        provider.CredentialId = input.CredentialId;
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            provider.ProtectedApiKey = ProtectApiKey(apiKey);
+            provider.CredentialId = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(input.CredentialId))
+        {
+            provider.ProtectedApiKey = null;
+            provider.CredentialId = input.CredentialId.Trim();
+        }
+        else if (removeStoredApiKey)
+        {
+            provider.ProtectedApiKey = null;
+        }
+
         provider.ApiVersion = input.ApiVersion;
         provider.Enabled = input.Enabled;
         provider.UpdatedAt = DateTimeOffset.UtcNow;
         await db.SaveChangesAsync(cancellationToken);
     }
+
+    public Task<bool> HasStoredApiKeyAsync(int id, CancellationToken cancellationToken = default) =>
+        db.Providers.AsNoTracking().AnyAsync(
+            provider => provider.Id == id && provider.ProtectedApiKey != null,
+            cancellationToken);
 
     public async Task ToggleAsync(int id, CancellationToken cancellationToken = default)
     {
@@ -88,5 +129,35 @@ public sealed class ProviderConfigurationService(SubtitleTranslatorDbContext db)
         {
             throw new ArgumentException("Base URL is required for this provider type.", nameof(provider));
         }
+
+        if (provider.Type == ProviderType.AzureOpenAi)
+        {
+            if (!Uri.TryCreate(provider.BaseUrl, UriKind.Absolute, out var azureUri)
+                || !string.Equals(azureUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("Azure OpenAI requires an HTTPS base URL.", nameof(provider));
+            }
+
+            if (provider.AuthenticationType is not (AuthenticationType.ApiKey or AuthenticationType.AzureKeyCredential))
+            {
+                throw new ArgumentException("Azure OpenAI currently supports API-key authentication only.", nameof(provider));
+            }
+        }
+    }
+
+    private string ProtectApiKey(string apiKey)
+    {
+        var normalized = apiKey.Trim();
+        if (normalized.Length > 8192 || normalized.Contains('\r') || normalized.Contains('\n'))
+        {
+            throw new ArgumentException("Credential is invalid or exceeds the maximum supported length.", nameof(apiKey));
+        }
+
+        if (apiKeyProtector is null)
+        {
+            throw new InvalidOperationException("Secure credential storage is unavailable.");
+        }
+
+        return apiKeyProtector.Protect(normalized);
     }
 }

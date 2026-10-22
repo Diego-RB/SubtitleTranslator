@@ -256,6 +256,9 @@ namespace SubtitleTranslator.Infrastructure.Persistence.Migrations
                     b.Property<string>("CredentialId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("ProtectedApiKey")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("INTEGER");
 

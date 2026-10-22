@@ -206,14 +206,14 @@ public sealed class AzureBatchProvider(
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string endpoint, ProviderConfiguration provider)
     {
-        var credential = credentialResolver.Resolve(provider.CredentialId);
+        var credential = credentialResolver.Resolve(provider.CredentialId, provider.ProtectedApiKey);
         if (string.IsNullOrWhiteSpace(credential))
         {
-            throw new InvalidOperationException(
-                $"Credential '{provider.CredentialId}' was not found in the environment.");
+            throw new InvalidOperationException("Configured Azure OpenAI credential is unavailable.");
         }
 
-        if (!string.Equals(provider.AuthenticationType, "ApiKey", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(provider.AuthenticationType, "ApiKey", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(provider.AuthenticationType, "AzureKeyCredential", StringComparison.OrdinalIgnoreCase))
         {
             throw new NotSupportedException("Azure Batch currently supports API-key authentication only.");
         }
@@ -410,9 +410,10 @@ public sealed class AzureBatchProvider(
             throw new ArgumentException("Azure OpenAI BaseUrl must be an absolute HTTPS URL.", nameof(provider));
         }
 
-        if (string.IsNullOrWhiteSpace(provider.CredentialId))
+        if (string.IsNullOrWhiteSpace(provider.CredentialId)
+            && string.IsNullOrWhiteSpace(provider.ProtectedApiKey))
         {
-            throw new ArgumentException("Azure OpenAI CredentialId is required.", nameof(provider));
+            throw new ArgumentException("Azure OpenAI credential is required.", nameof(provider));
         }
     }
 

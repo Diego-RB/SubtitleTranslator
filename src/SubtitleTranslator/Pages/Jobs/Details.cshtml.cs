@@ -5,7 +5,7 @@ using SubtitleTranslator.Domain.Entities;
 
 namespace SubtitleTranslator.Pages.Jobs;
 
-public class DetailsModel(DashboardQueryService dashboard) : PageModel
+public class DetailsModel(DashboardQueryService dashboard, TranslationJobRetryService retryService) : PageModel
 {
     public TranslationJob Job { get; private set; } = null!;
     public IReadOnlyList<JobTimelineEvent> Timeline { get; private set; } = [];
@@ -21,6 +21,26 @@ public class DetailsModel(DashboardQueryService dashboard) : PageModel
         Job = job;
         Timeline = BuildTimeline(job);
         return Page();
+    }
+
+    public async Task<IActionResult> OnGetLiveAsync(int id, CancellationToken cancellationToken)
+    {
+        var update = await dashboard.GetJobLiveUpdateAsync(id, cancellationToken);
+        return update is null ? NotFound() : new JsonResult(update);
+    }
+
+    public async Task<IActionResult> OnPostRetryAsync(int id, CancellationToken cancellationToken)
+    {
+        if (!await retryService.RetryAsync(id, cancellationToken))
+        {
+            TempData["RetryError"] = "This job cannot be retried. Confirm that it is failed or cancelled, its source still exists, and its pipeline and prompt are configured.";
+        }
+        else
+        {
+            TempData["RetrySuccess"] = "Job queued for retry. Completed subtitle translations and attempt history are preserved.";
+        }
+
+        return RedirectToPage(new { id });
     }
 
     private static IReadOnlyList<JobTimelineEvent> BuildTimeline(TranslationJob job)

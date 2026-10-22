@@ -92,11 +92,13 @@ Execute todos os testes da solução:
 dotnet test
 ```
 
+Para validar manualmente scanner, providers, pipelines, fallback, retry e endpoints, consulte o [roteiro de teste manual](docs/testing/manual-test-guide.md).
+
 ## Configuração de credenciais
 
-As credenciais não devem ser incluídas no código, no SQLite ou no Git.
+Credenciais não devem ser incluídas no código, em texto puro no SQLite ou no Git. Na interface, cole a chave no campo **Credential**; ela é protegida com ASP.NET Core Data Protection antes de ser armazenada. O key ring do Data Protection deve persistir e ser protegido/backup junto com o banco. Referências antigas a variáveis de ambiente continuam disponíveis em **Advanced → Credential ID**.
 
-O campo `CredentialId` representa o nome de uma variável de ambiente. Por exemplo:
+Para o modo legado de variável de ambiente, `CredentialId` representa o nome da variável. Por exemplo:
 
 ```text
 OPENROUTER_API_KEY=sua-chave-aqui
@@ -108,7 +110,7 @@ O arquivo `.env` local é ignorado pelo Git. Use um mecanismo seguro de secrets 
 
 1. Inicie a aplicação.
 2. Abra a página **Providers**.
-3. Crie um provider e informe o `CredentialId` como nome da variável de ambiente.
+3. Crie um provider e cole a chave no campo **Credential**. Opcionalmente, use **Advanced → Credential ID** para uma variável de ambiente.
 4. Crie um model associado ao provider (incluindo tarifas por 1M tokens e configuração JSON opcional para `batchDiscountPercent` ou `maxParallelRequests`).
 5. Configure a estratégia e os limites de chunking.
 6. Crie um pipeline e ordene os steps usando os botões de prioridade (↑ / ↓).
@@ -116,15 +118,17 @@ O arquivo `.env` local é ignorado pelo Git. Use um mecanismo seguro de secrets 
 8. Em **Defaults**, escolha o pipeline e a versão de prompt para novos jobs.
 9. Confirme que os diretórios monitorados estão corretos na seção `Scanner` do `appsettings.json`.
 
+O worker aguarda `Scanner:FileStabilityDelaySeconds` (15 segundos por padrão quando não configurado) após a última gravação observada antes de iniciar um job, reduzindo falhas causadas por arquivos ainda sendo copiados. Jobs `Failed` ou `Cancelled` podem ser re-enfileirados pela página de detalhes; o retry preserva resultados já concluídos e o histórico de tentativas. Se a saída de um job concluído for apagada e a fonte não tiver mudado, o scanner reabre o job para restaurar a saída usando chunks persistidos.
+
 Exemplo seguro de variável de ambiente:
 
 ```text
 OPENROUTER_API_KEY=<set-in-environment>
 ```
 
-O banco armazena a configuração e apenas a referência da credencial; o segredo não é armazenado no SQLite.
+Quando uma chave é colada no formulário, o SQLite armazena somente o valor protegido pelo Data Protection, não a chave em texto puro. O key ring é necessário para descriptografar a credencial após reinícios ou restaurações.
 
-Para Azure OpenAI síncrono, configure o provider com o endpoint do recurso, a versão da API e o `CredentialId` como nome da variável de ambiente. O model deve informar o `DeploymentName`. Nesta fase, a autenticação Azure suporta API key por variável de ambiente; Managed Identity ainda não está implementada.
+Para Azure OpenAI síncrono via API v1, configure o provider com o endpoint terminado em `/openai/v1`, cole a chave em **Credential**, deixe `ApiVersion` vazio e informe `DeploymentName`. O adapter usa Chat Completions. O modo legado continua aceitando endpoint de deployment e `ApiVersion`. Azure suporta `ApiKey` e `AzureKeyCredential`; Managed Identity ainda não está implementada.
 
 Para Azure Batch, use o mesmo provider Azure OpenAI e um model com `SupportsBatch` habilitado e `DeploymentName` configurado. O fluxo JSONL, submissão, polling, outputs/errors, persistência de estado e recuperação são executados pelo worker.
 

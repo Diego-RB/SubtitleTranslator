@@ -6,14 +6,43 @@
 <h1>Create provider</h1>
 <form method="post">
     <div asp-validation-summary="ModelOnly" class="text-danger"></div>
-    <div class="mb-3"><label asp-for="Input.Name" class="form-label"></label><input asp-for="Input.Name" class="form-control" /><span asp-validation-for="Input.Name" class="text-danger"></span></div>
-    <div class="mb-3"><label asp-for="Input.Type" class="form-label"></label><select asp-for="Input.Type" asp-items="Html.GetEnumSelectList<SubtitleTranslator.Domain.Enums.ProviderType>()" class="form-select"></select></div>
-    <div class="mb-3"><label asp-for="Input.BaseUrl" class="form-label"></label><input asp-for="Input.BaseUrl" class="form-control" /><div class="form-text">Absolute HTTP/HTTPS URL. Required for OpenRouter and Ollama.</div><span asp-validation-for="Input.BaseUrl" class="text-danger"></span></div>
-    <div class="mb-3"><label asp-for="Input.AuthenticationType" class="form-label"></label><select asp-for="Input.AuthenticationType" asp-items="Html.GetEnumSelectList<SubtitleTranslator.Domain.Enums.AuthenticationType>()" class="form-select"></select></div>
-    <div class="mb-3"><label asp-for="Input.CredentialId" class="form-label">Credential ID</label><input asp-for="Input.CredentialId" class="form-control" /><div class="form-text">Environment variable name containing the credential. The secret is never stored in SQLite.</div></div>
-    <div class="mb-3"><label asp-for="Input.ApiVersion" class="form-label"></label><input asp-for="Input.ApiVersion" class="form-control" /></div>
-    <div class="form-check mb-3"><input asp-for="Input.Enabled" class="form-check-input" /><label asp-for="Input.Enabled" class="form-check-label"></label></div>
-    <button class="btn btn-primary" type="submit">Save</button>
-    <a class="btn btn-secondary" asp-page="Index">Cancel</a>
-</form>
-@section Scripts { <partial name="_ValidationScriptsPartial" /> }
+    <div class="mb-3"><label asp-for="Input.Name" class="form-label"></label><input asp-for="Input.Name"
+                                                                                        class="form-control" /><span asp-validation-for="Input.Name" class="text-danger"></span></div>
+        <div class="mb-3"><label asp-for="Input.Type" class="form-label"></label><select asp-for="Input.Type"
+                                                                                             asp-items="Html.GetEnumSelectList<SubtitleTranslator.Domain.Enums.ProviderType>()"
+                                                                                             class="form-select"></select></div>
+            <div class="mb-3"><label asp-for="Input.BaseUrl" class="form-label"></label><input asp-for="Input.BaseUrl"
+                                                                                                   class="form-control" />
+                <div class="form-text">For Azure OpenAI v1, use the endpoint ending in /openai/v1 (or /openai/v1/responses). The
+                    app calls the Chat Completions route.</div><span asp-validation-for="Input.BaseUrl"
+                                                                     class="text-danger"></span>
+                </div>
+                <div class="mb-3"><label asp-for="Input.AuthenticationType" class="form-label"></label><select
+                    asp-for="Input.AuthenticationType"
+                    asp-items="Html.GetEnumSelectList<SubtitleTranslator.Domain.Enums.AuthenticationType>()"
+                    class="form-select"></select></div>
+                    <div class="mb-3"><label asp-for="Input.ApiKey" class="form-label">Credential</label><input asp-for="Input.ApiKey"
+                                                                                                                    type="password" autocomplete="new-password" class="form-control" />
+                        <div class="form-text">Paste the API key here. It will be encrypted before being saved.</div><span
+                        asp-validation-for="Input.ApiKey" class="text-danger"></span>
+                    </div>
+                    <details class="mb-3">
+                        <summary>Advanced: use an environment variable instead</summary>
+                        <div class="mt-2"><label asp-for="Input.CredentialId" class="form-label">Credential ID</label><input
+                            asp-for="Input.CredentialId" class="form-control" />
+                            <div class="form-text">Optional legacy mode: enter an environment variable name, not the secret value.</div>
+                        </div>
+                    </details>
+                    <div class="mb-3"><label asp-for="Input.ApiVersion" class="form-label"></label><input asp-for="Input.ApiVersion"
+                                                                                                              class="form-control" />
+                        <div class="form-text">Optional for Azure OpenAI v1 endpoints; required for legacy Azure deployment endpoints.
+                        </div>
+                    </div>
+                    <div class="form-check mb-3"><input asp-for="Input.Enabled" class="form-check-input" /><label
+                        asp-for="Input.Enabled" class="form-check-label"></label></div>
+                        <button class="btn btn-primary" type="submit">Save</button>
+                        <a class="btn btn-secondary" asp-page="Index">Cancel</a>
+                    </form>
+                    @section Scripts {
+                        <partial name="_ValidationScriptsPartial" />
+                    }

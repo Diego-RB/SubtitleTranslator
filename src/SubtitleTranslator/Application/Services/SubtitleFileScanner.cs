@@ -49,8 +49,29 @@ public sealed class SubtitleFileScanner(
                 }
 
                 var sourcePath = NormalizePath(file);
-                if (await db.Jobs.AnyAsync(job => job.SourcePath == sourcePath, cancellationToken))
+                var existingJob = await db.Jobs.SingleOrDefaultAsync(
+                    job => job.SourcePath == sourcePath,
+                    cancellationToken);
+                if (existingJob is not null)
                 {
+                    if (CanRestoreMissingOutput(existingJob, sourcePath))
+                    {
+                        var now = DateTimeOffset.UtcNow;
+                        existingJob.Status = JobStatus.Discovered;
+                        existingJob.CompletedAt = null;
+                        existingJob.FailedChunks = 0;
+                        existingJob.LastError = null;
+                        existingJob.LastHeartbeatAt = null;
+                        existingJob.LastActivityAt = now;
+                        existingJob.UpdatedAt = now;
+                        await db.SaveChangesAsync(cancellationToken);
+                        created++;
+                        logger.LogInformation(
+                            "Re-queued completed job {JobId} to restore missing output {OutputPath} from saved chunk results",
+                            existingJob.Id,
+                            existingJob.OutputPath ?? BuildOutputPath(sourcePath));
+                    }
+
                     continue;
                 }
 
@@ -87,6 +108,37 @@ public sealed class SubtitleFileScanner(
         var name = Path.GetFileName(path);
         return name.EndsWith(".pt-BR.srt", StringComparison.OrdinalIgnoreCase)
             || name.EndsWith(".pt.srt", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool CanRestoreMissingOutput(TranslationJob job, string sourcePath)
+    {
+        if (job.Status != JobStatus.Completed
+            || job.CompletedAt is null
+            || !File.Exists(sourcePath))
+        {
+            return false;
+        }
+
+        var outputPath = string.IsNullOrWhiteSpace(job.OutputPath)
+            ? BuildOutputPath(sourcePath)
+            : job.OutputPath;
+        if (File.Exists(outputPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            return File.GetLastWriteTimeUtc(sourcePath) <= job.CompletedAt.Value.UtcDateTime;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static string BuildOutputPath(string sourcePath) =>

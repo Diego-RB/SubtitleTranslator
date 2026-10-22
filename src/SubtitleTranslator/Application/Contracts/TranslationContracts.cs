@@ -9,7 +9,10 @@ public sealed record ProviderConfiguration(
     string? BaseUrl,
     string AuthenticationType,
     string? CredentialId,
-    string? ApiVersion);
+    string? ApiVersion)
+{
+    public string? ProtectedApiKey { get; init; }
+}
 
 public sealed record ModelConfiguration(
     int Id,

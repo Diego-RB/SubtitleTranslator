@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using SubtitleTranslator.Application.Services;
@@ -9,10 +10,57 @@ namespace SubtitleTranslator.Pages.Models;
 
 public class CreateModel(ModelConfigurationService service) : PageModel
 {
+    private static readonly JsonSerializerOptions ConfigurationJsonOptions = new() { WriteIndented = true };
+
     [BindProperty] public InputModel Input { get; set; } = new();
     public IReadOnlyList<Provider> Providers { get; private set; } = [];
     public IEnumerable<ChunkStrategy> ChunkStrategies => Enum.GetValues<ChunkStrategy>();
-    public async Task OnGetAsync() => Providers = await service.GetProvidersAsync();
+    public string GetDefaultConfigurationJson(ProviderType? providerType = null)
+    {
+        var configuration = new Dictionary<string, object?>
+        {
+            ["timeoutSeconds"] = 120,
+            ["maxRetries"] = 3,
+            ["retryDelayMilliseconds"] = 500,
+            ["maxParallelRequests"] = 1,
+            ["pipelineMaxAttempts"] = 1,
+            ["pipelineRetryDelayMilliseconds"] = 1000,
+            ["pipelineMaxParallelRequests"] = 1,
+            ["batchPollIntervalSeconds"] = 60,
+            ["batchDiscountPercent"] = 0,
+            ["numPredict"] = null,
+            ["temperature"] = null,
+            ["httpReferer"] = null,
+            ["xTitle"] = null
+        };
+
+        if (providerType is null or ProviderType.OpenAiCompatible or ProviderType.OpenRouter)
+        {
+            configuration["maxParallelRequests"] = 4;
+        }
+        else if (providerType == ProviderType.Ollama)
+        {
+            configuration["maxRetries"] = null;
+            configuration["retryDelayMilliseconds"] = null;
+        }
+        else if (providerType == ProviderType.AzureOpenAi)
+        {
+            configuration["maxParallelRequests"] = null;
+            configuration["numPredict"] = null;
+            configuration["temperature"] = null;
+            configuration["httpReferer"] = null;
+            configuration["xTitle"] = null;
+        }
+
+        return JsonSerializer.Serialize(configuration, ConfigurationJsonOptions);
+    }
+
+    public async Task OnGetAsync()
+    {
+        Providers = await service.GetProvidersAsync();
+        Input.ConfigurationJson = GetDefaultConfigurationJson();
+    }
+
     public async Task<IActionResult> OnPostAsync()
     {
         Providers = await service.GetProvidersAsync();

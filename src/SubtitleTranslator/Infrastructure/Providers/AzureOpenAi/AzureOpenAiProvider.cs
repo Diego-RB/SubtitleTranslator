@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -25,31 +26,36 @@ public sealed class AzureOpenAiProvider(
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
-        ValidateRequest(request);
+        var isV1Endpoint = IsAzureOpenAiV1Endpoint(request.Provider.BaseUrl);
+        ValidateRequest(request, isV1Endpoint);
 
         var options = AzureOptions.Parse(request.Model.ConfigurationJson);
-        var credential = credentialResolver.Resolve(request.Provider.CredentialId);
+        var credential = credentialResolver.Resolve(request.Provider.CredentialId, request.Provider.ProtectedApiKey);
         if (string.IsNullOrWhiteSpace(credential))
         {
-            throw new InvalidOperationException(
-                $"Credential '{request.Provider.CredentialId}' was not found in the environment.");
+            throw new InvalidOperationException("Configured Azure OpenAI credential is unavailable.");
         }
 
         var endpoint = BuildEndpoint(
             request.Provider.BaseUrl!,
             request.Model.DeploymentName!,
-            request.Provider.ApiVersion!);
-        var promptCacheKey = request.SupportsPromptCache && !string.IsNullOrWhiteSpace(request.PromptCacheKey)
+            request.Provider.ApiVersion,
+            isV1Endpoint);
+        var promptCacheKey = !isV1Endpoint
+            && request.SupportsPromptCache
+            && !string.IsNullOrWhiteSpace(request.PromptCacheKey)
             ? request.PromptCacheKey
             : null;
         var payload = new ChatCompletionRequest(
+            isV1Endpoint ? request.Model.DeploymentName : null,
             [
                 new ChatMessage("system", BuildSystemPrompt(request)),
                 new ChatMessage("user", BuildUserContent(request))
             ],
             request.Model.Temperature,
             request.Model.TopP,
-            request.Model.MaxOutputTokens,
+            isV1Endpoint ? null : request.Model.MaxOutputTokens,
+            isV1Endpoint ? request.Model.MaxOutputTokens : null,
             promptCacheKey);
 
         var stopwatch = Stopwatch.StartNew();
@@ -64,6 +70,10 @@ public sealed class AzureOpenAiProvider(
                     Content = JsonContent.Create(payload, options: JsonOptions)
                 };
                 httpRequest.Headers.TryAddWithoutValidation("api-key", credential);
+                if (isV1Endpoint)
+                {
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+                }
 
                 using var response = await httpClient.SendAsync(
                     httpRequest,
@@ -84,8 +94,12 @@ public sealed class AzureOpenAiProvider(
                         (int)response.StatusCode,
                         attempt + 1,
                         request.Model.DeploymentName);
+                    var error = ParseErrorResponse(responseBody, credential);
+                    var detail = string.IsNullOrWhiteSpace(error.Message)
+                        ? string.Empty
+                        : $" ({error.Code ?? "Azure error"}: {error.Message})";
                     throw new AzureOpenAiProviderException(
-                        $"Azure OpenAI returned HTTP {(int)response.StatusCode}.",
+                        $"Azure OpenAI returned HTTP {(int)response.StatusCode}{detail}",
                         (int)response.StatusCode,
                         transient);
                 }
@@ -123,7 +137,7 @@ public sealed class AzureOpenAiProvider(
         }
     }
 
-    private static void ValidateRequest(TranslationRequest request)
+    private static void ValidateRequest(TranslationRequest request, bool isV1Endpoint)
     {
         if (request.Provider.Id <= 0)
         {
@@ -135,17 +149,19 @@ public sealed class AzureOpenAiProvider(
             throw new InvalidOperationException("Azure OpenAI BaseUrl is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Provider.ApiVersion))
+        if (!isV1Endpoint && string.IsNullOrWhiteSpace(request.Provider.ApiVersion))
         {
             throw new InvalidOperationException("Azure OpenAI ApiVersion is required.");
         }
 
-        if (string.IsNullOrWhiteSpace(request.Provider.CredentialId))
+        if (string.IsNullOrWhiteSpace(request.Provider.CredentialId)
+            && string.IsNullOrWhiteSpace(request.Provider.ProtectedApiKey))
         {
-            throw new InvalidOperationException("Azure OpenAI CredentialId is required for API-key authentication.");
+            throw new InvalidOperationException("Azure OpenAI credential is required for API-key authentication.");
         }
 
-        if (!string.Equals(request.Provider.AuthenticationType, "ApiKey", StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(request.Provider.AuthenticationType, "ApiKey", StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(request.Provider.AuthenticationType, "AzureKeyCredential", StringComparison.OrdinalIgnoreCase))
         {
             throw new NotSupportedException(
                 "Phase 6 supports Azure OpenAI API-key authentication. Managed Identity is not implemented yet.");
@@ -167,18 +183,47 @@ public sealed class AzureOpenAiProvider(
         }
     }
 
-    private static string BuildEndpoint(string baseUrl, string deployment, string apiVersion)
+    private static bool IsAzureOpenAiV1Endpoint(string? baseUrl)
+    {
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            return false;
+        }
+
+        var normalized = baseUrl.TrimEnd('/');
+        if (normalized.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized[..^"/responses".Length];
+        }
+
+        return normalized.EndsWith("/openai/v1", StringComparison.OrdinalIgnoreCase)
+            || normalized.EndsWith("/openai/v1/chat/completions", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string BuildEndpoint(string baseUrl, string deployment, string? apiVersion, bool isV1Endpoint)
     {
         var normalized = baseUrl.TrimEnd('/');
+        if (isV1Endpoint)
+        {
+            if (normalized.EndsWith("/responses", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = normalized[..^"/responses".Length];
+            }
+
+            return normalized.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase)
+                ? normalized
+                : $"{normalized}/chat/completions";
+        }
+
         if (normalized.Contains("/openai/deployments/", StringComparison.OrdinalIgnoreCase)
             && normalized.Contains("/chat/completions", StringComparison.OrdinalIgnoreCase))
         {
-            return AddApiVersion(normalized, apiVersion);
+            return AddApiVersion(normalized, apiVersion!);
         }
 
         return AddApiVersion(
             $"{normalized}/openai/deployments/{Uri.EscapeDataString(deployment)}/chat/completions",
-            apiVersion);
+            apiVersion!);
     }
 
     private static string AddApiVersion(string endpoint, string apiVersion)
@@ -215,6 +260,39 @@ public sealed class AzureOpenAiProvider(
 
     private static bool IsTransient(HttpStatusCode statusCode) =>
         statusCode == HttpStatusCode.TooManyRequests || (int)statusCode >= 500;
+
+    private static (string? Code, string? Message) ParseErrorResponse(string responseBody, string credential)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(responseBody);
+            if (!document.RootElement.TryGetProperty("error", out var error)
+                || error.ValueKind != JsonValueKind.Object)
+            {
+                return (null, null);
+            }
+
+            var code = error.TryGetProperty("code", out var codeElement)
+                && codeElement.ValueKind == JsonValueKind.String
+                    ? codeElement.GetString()
+                    : null;
+            var message = error.TryGetProperty("message", out var messageElement)
+                && messageElement.ValueKind == JsonValueKind.String
+                    ? messageElement.GetString()
+                    : null;
+            if (!string.IsNullOrWhiteSpace(message))
+            {
+                message = message.Replace(credential, "[REDACTED]", StringComparison.Ordinal);
+                message = message.Length > 512 ? $"{message[..512]}…" : message;
+            }
+
+            return (code, message);
+        }
+        catch (JsonException)
+        {
+            return (null, null);
+        }
+    }
 
     private static async Task DelayBeforeRetryAsync(
         HttpResponseMessage? response,
@@ -323,10 +401,17 @@ public sealed class AzureOpenAiProvider(
     }
 
     private sealed record ChatCompletionRequest(
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        string? Model,
         IReadOnlyList<ChatMessage> Messages,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         double? Temperature,
+        [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         double? TopP,
+        [property: JsonPropertyName("max_tokens"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         int? MaxTokens,
+        [property: JsonPropertyName("max_completion_tokens"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        int? MaxCompletionTokens,
         [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         string? PromptCacheKey = null);
 

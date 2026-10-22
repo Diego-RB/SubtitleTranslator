@@ -9,41 +9,51 @@ namespace SubtitleTranslator.Workers;
 public sealed class SubtitleTranslationWorker(
     IServiceScopeFactory scopeFactory,
     IOptionsMonitor<ScannerOptions> options,
+    WorkerRuntimeStatus runtimeStatus,
     ILogger<SubtitleTranslationWorker> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        var nextScan = DateTimeOffset.MinValue;
-        var nextRecovery = DateTimeOffset.MinValue;
-        while (!stoppingToken.IsCancellationRequested)
+        runtimeStatus.MarkOnline();
+        try
         {
-            var configuration = options.CurrentValue;
-            var now = DateTimeOffset.UtcNow;
-            if (configuration.Enabled && now >= nextScan)
+            var nextScan = DateTimeOffset.MinValue;
+            var nextRecovery = DateTimeOffset.MinValue;
+            while (!stoppingToken.IsCancellationRequested)
             {
-                await RunScannerAsync(configuration.Directories, stoppingToken);
-                nextScan = now.AddSeconds(Math.Max(1, configuration.IntervalSeconds));
-            }
+                var configuration = options.CurrentValue;
+                var now = DateTimeOffset.UtcNow;
+                if (configuration.Enabled && now >= nextScan)
+                {
+                    await RunScannerAsync(configuration.Directories, stoppingToken);
+                    nextScan = now.AddSeconds(Math.Max(1, configuration.IntervalSeconds));
+                }
 
-            if (now >= nextRecovery)
-            {
-                await RunRecoveryAsync(configuration, stoppingToken);
-                nextRecovery = now.AddSeconds(Math.Max(1, configuration.RecoveryIntervalSeconds));
-            }
+                if (now >= nextRecovery)
+                {
+                    await RunRecoveryAsync(configuration, stoppingToken);
+                    nextRecovery = now.AddSeconds(Math.Max(1, configuration.RecoveryIntervalSeconds));
+                }
 
-            var jobId = await TryClaimNextJobAsync(
-                TimeSpan.FromMinutes(Math.Max(1, configuration.StalledJobThresholdMinutes)),
-                stoppingToken);
-            if (jobId is not null)
-            {
-                await ExecuteClaimedJobAsync(jobId.Value, configuration, stoppingToken);
-                continue;
-            }
+                var jobId = await TryClaimNextJobAsync(
+                    TimeSpan.FromMinutes(Math.Max(1, configuration.StalledJobThresholdMinutes)),
+                    TimeSpan.FromSeconds(Math.Max(0, configuration.FileStabilityDelaySeconds)),
+                    stoppingToken);
+                if (jobId is not null)
+                {
+                    await ExecuteClaimedJobAsync(jobId.Value, configuration, stoppingToken);
+                    continue;
+                }
 
-            var delaySeconds = Math.Min(
-                Math.Max(1, configuration.IntervalSeconds),
-                Math.Max(1, configuration.RecoveryIntervalSeconds));
-            await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
+                var delaySeconds = Math.Min(
+                    Math.Max(1, configuration.IntervalSeconds),
+                    Math.Max(1, configuration.RecoveryIntervalSeconds));
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), stoppingToken);
+            }
+        }
+        finally
+        {
+            runtimeStatus.MarkOffline();
         }
     }
 
@@ -56,7 +66,7 @@ public sealed class SubtitleTranslationWorker(
             var discovered = await scanner.ScanOnceAsync(directories, cancellationToken);
             if (discovered > 0)
             {
-                logger.LogInformation("Subtitle scanner discovered {JobCount} new files", discovered);
+                logger.LogInformation("Subtitle scanner discovered or re-queued {JobCount} files", discovered);
             }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -90,7 +100,10 @@ public sealed class SubtitleTranslationWorker(
         }
     }
 
-    private async Task<int?> TryClaimNextJobAsync(TimeSpan staleAfter, CancellationToken cancellationToken)
+    private async Task<int?> TryClaimNextJobAsync(
+        TimeSpan staleAfter,
+        TimeSpan fileStabilityDelay,
+        CancellationToken cancellationToken)
     {
         await using var scope = scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<SubtitleTranslatorDbContext>();
@@ -119,6 +132,7 @@ public sealed class SubtitleTranslationWorker(
             .Select(job => new
             {
                 job.Id,
+                job.SourcePath,
                 job.Status,
                 job.CreatedAt,
                 job.LastHeartbeatAt,
@@ -131,7 +145,8 @@ public sealed class SubtitleTranslationWorker(
             .ToListAsync(cancellationToken);
         var candidates = pendingCandidates
             .Where(candidate =>
-                (candidate.AzureBatchId is null || IsTerminalBatch(candidate.AzureBatchStatus))
+                IsSourceFileStable(candidate.SourcePath, now, fileStabilityDelay)
+                && (candidate.AzureBatchId is null || IsTerminalBatch(candidate.AzureBatchStatus))
                 && (candidate.Status is JobStatus.Discovered or JobStatus.Queued
                     || (candidate.LastHeartbeatAt ?? candidate.LastActivityAt ?? candidate.UpdatedAt) <= staleBefore))
             .OrderBy(candidate => candidate.CreatedAt)
@@ -160,6 +175,23 @@ public sealed class SubtitleTranslationWorker(
         }
 
         return null;
+    }
+
+    private static bool IsSourceFileStable(string sourcePath, DateTimeOffset now, TimeSpan stabilityDelay)
+    {
+        try
+        {
+            return !File.Exists(sourcePath)
+                || File.GetLastWriteTimeUtc(sourcePath) <= (now - stabilityDelay).UtcDateTime;
+        }
+        catch (IOException)
+        {
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return true;
+        }
     }
 
     private static bool IsTerminalBatch(string? status) =>

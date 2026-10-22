@@ -29,10 +29,12 @@ public class DashboardQueryServiceTests
             CreateJob("failed.srt", JobStatus.Failed, now.AddDays(-2)));
         await context.SaveChangesAsync();
 
-        var service = new DashboardQueryService(context, new ProviderHealthRegistry());
+        var workerStatus = new WorkerRuntimeStatus();
+        workerStatus.MarkOnline();
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry(), workerStatus);
         var overview = await service.GetOverviewAsync(TimeSpan.FromMinutes(10));
 
-        Assert.True(overview.IsApplicationOnline);
+        Assert.True(overview.IsWorkerOnline);
         Assert.Equal(4, overview.ActiveJobs);
         Assert.Equal(1, overview.QueuedJobs);
         Assert.Equal(1, overview.CompletedToday);
@@ -55,7 +57,7 @@ public class DashboardQueryServiceTests
             CreateJob("/media/alpha-2.srt", JobStatus.Completed, now.AddMinutes(-2)));
         await context.SaveChangesAsync();
 
-        var service = new DashboardQueryService(context, new ProviderHealthRegistry());
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry(), new WorkerRuntimeStatus());
         var result = await service.GetJobsAsync("alpha", JobStatus.Completed, page: 1, pageSize: 1);
 
         Assert.Equal(2, result.TotalCount);
@@ -64,6 +66,40 @@ public class DashboardQueryServiceTests
         Assert.Equal(JobStatus.Completed, result.Jobs[0].Status);
         Assert.Equal(100, new DashboardJobRow(
             1, "done.srt", JobStatus.Completed, 0, 0, 0, null, null, now, null, null, 0m, null).ProgressPercent);
+    }
+
+    [Fact]
+    public async Task GetJobLiveUpdateAsync_ReturnsCurrentCountersAndProgress()
+    {
+        await using var context = CreateContext();
+        var job = CreateJob("live.srt", JobStatus.LocalProcessing, DateTimeOffset.UtcNow);
+        job.TotalChunks = 4;
+        job.CompletedChunks = 2;
+        job.FailedChunks = 1;
+        job.InputTokens = 1200;
+        job.OutputTokens = 600;
+        job.RetryCount = 2;
+        job.EstimatedCost = 0.25m;
+        job.AzureBatchId = "batch-live";
+        job.AzureBatchStatus = "in_progress";
+        job.AzureBatchTotalRequests = 10;
+        job.AzureBatchCompletedRequests = 6;
+        job.AzureBatchFailedRequests = 1;
+        context.Jobs.Add(job);
+        await context.SaveChangesAsync();
+
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry(), new WorkerRuntimeStatus());
+        var update = await service.GetJobLiveUpdateAsync(job.Id);
+
+        Assert.NotNull(update);
+        Assert.Equal("LocalProcessing", update.Status);
+        Assert.Equal(70, update.ProgressPercent);
+        Assert.Equal("Batch: 7 / 10 requests", update.ProgressLabel);
+        Assert.Equal(2, update.CompletedChunks);
+        Assert.Equal(4, update.TotalChunks);
+        Assert.Equal(1200, update.InputTokens);
+        Assert.Equal(2, update.RetryCount);
+        Assert.Equal(6, update.AzureBatchCompletedRequests);
     }
 
     [Fact]
@@ -98,7 +134,7 @@ public class DashboardQueryServiceTests
         context.Jobs.Add(job);
         await context.SaveChangesAsync();
 
-        var loaded = await new DashboardQueryService(context, new ProviderHealthRegistry()).GetJobAsync(job.Id);
+        var loaded = await new DashboardQueryService(context, new ProviderHealthRegistry(), new WorkerRuntimeStatus()).GetJobAsync(job.Id);
 
         Assert.NotNull(loaded);
         Assert.Equal("Default", loaded.Pipeline?.Name);
@@ -107,22 +143,80 @@ public class DashboardQueryServiceTests
         Assert.Equal("temporary_error", Assert.Single(chunk.Attempts).ErrorCode);
     }
 
+    [Fact]
+    public async Task GetOverviewAsync_ReportsWorkerOfflineUntilWorkerStarts()
+    {
+        await using var context = CreateContext();
+        var workerStatus = new WorkerRuntimeStatus();
+        var service = new DashboardQueryService(context, new ProviderHealthRegistry(), workerStatus);
+
+        Assert.False((await service.GetOverviewAsync(TimeSpan.FromMinutes(10))).IsWorkerOnline);
+        workerStatus.MarkOnline();
+        Assert.True((await service.GetOverviewAsync(TimeSpan.FromMinutes(10))).IsWorkerOnline);
+    }
+
+    [Fact]
+    public async Task RetryAsync_RequeuesFailedJobAndPreservesAttempts()
+    {
+        await using var context = CreateContext();
+        var sourcePath = Path.Combine(Path.GetTempPath(), $"retry-{Guid.NewGuid():N}.srt");
+        await File.WriteAllTextAsync(sourcePath, "1\r\n00:00:00,000 --> 00:00:01,000\r\nHello\r\n");
+        try
+        {
+            var job = CreateJob(sourcePath, JobStatus.Failed, DateTimeOffset.UtcNow);
+            job.Pipeline = new Pipeline { Name = "Default" };
+            job.PromptVersion = new PromptVersion
+            {
+                PromptTemplate = new PromptTemplate { Name = "Default" },
+                Version = 1,
+                StaticContent = "Translate"
+            };
+            job.LastError = "temporary failure";
+            job.FailedChunks = 1;
+            job.AzureBatchId = "batch-1";
+            job.AzureBatchStatus = "failed";
+            job.Chunks.Add(new TranslationChunk
+            {
+                Sequence = 1,
+                StartSubtitleIndex = 1,
+                EndSubtitleIndex = 1,
+                Status = ChunkStatus.Failed,
+                Attempts = [new TranslationAttempt { AttemptNumber = 1, Provider = "test", Model = "test", Success = false }]
+            });
+            context.Jobs.Add(job);
+            await context.SaveChangesAsync();
+
+            var retried = await new TranslationJobRetryService(context).RetryAsync(job.Id);
+
+            Assert.True(retried);
+            Assert.Equal(JobStatus.Discovered, job.Status);
+            Assert.Null(job.LastError);
+            Assert.Null(job.AzureBatchId);
+            Assert.Equal(0, job.FailedChunks);
+            Assert.Single(job.Chunks.Single().Attempts);
+        }
+        finally
+        {
+            File.Delete(sourcePath);
+        }
+    }
+
     private static TranslationJob CreateJob(
         string sourcePath,
         JobStatus status,
         DateTimeOffset createdAt,
         DateTimeOffset? lastActivity = null,
         DateTimeOffset? completedAt = null) => new()
-    {
-        SourcePath = sourcePath,
-        Status = status,
-        CreatedAt = createdAt,
-        UpdatedAt = lastActivity ?? createdAt,
-        LastActivityAt = lastActivity,
-        CompletedAt = completedAt,
-        TotalChunks = status == JobStatus.Completed ? 1 : 0,
-        CompletedChunks = status == JobStatus.Completed ? 1 : 0
-    };
+        {
+            SourcePath = sourcePath,
+            Status = status,
+            CreatedAt = createdAt,
+            UpdatedAt = lastActivity ?? createdAt,
+            LastActivityAt = lastActivity,
+            CompletedAt = completedAt,
+            TotalChunks = status == JobStatus.Completed ? 1 : 0,
+            CompletedChunks = status == JobStatus.Completed ? 1 : 0
+        };
 
     private static TranslationJob CreateBatchJob(string sourcePath, DateTimeOffset now) => new()
     {

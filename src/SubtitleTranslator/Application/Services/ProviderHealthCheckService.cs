@@ -59,15 +59,15 @@ public sealed class ProviderHealthCheckService(
             return Snapshot(ProviderHealthState.Degraded, "Provider BaseUrl is missing or invalid.");
         }
 
-        var credential = credentialResolver.Resolve(provider.CredentialId);
-        if (provider.AuthenticationType != AuthenticationType.None
-            && string.IsNullOrWhiteSpace(credential))
-        {
-            return Snapshot(ProviderHealthState.Degraded, "Configured credential is unavailable.");
-        }
-
         try
         {
+            var credential = credentialResolver.Resolve(provider.CredentialId, provider.ProtectedApiKey);
+            if (provider.AuthenticationType != AuthenticationType.None
+                && string.IsNullOrWhiteSpace(credential))
+            {
+                return Snapshot(ProviderHealthState.Degraded, "Configured credential is unavailable.");
+            }
+
             using var request = new HttpRequestMessage(HttpMethod.Get, BuildProbeUri(provider, baseUri));
             AddAuthentication(request, provider, credential);
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

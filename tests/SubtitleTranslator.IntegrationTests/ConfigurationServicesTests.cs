@@ -1,7 +1,10 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.DataProtection;
+using SubtitleTranslator.Application.Interfaces;
 using SubtitleTranslator.Application.Services;
 using SubtitleTranslator.Domain.Entities;
 using SubtitleTranslator.Domain.Enums;
+using SubtitleTranslator.Infrastructure.Security;
 using SubtitleTranslator.Infrastructure.Persistence;
 
 namespace SubtitleTranslator.IntegrationTests;
@@ -24,6 +27,115 @@ public class ConfigurationServicesTests
         Assert.Equal("OPENROUTER_API_KEY", stored.CredentialId);
         Assert.DoesNotContain("secret", stored.CredentialId, StringComparison.OrdinalIgnoreCase);
         Assert.False(stored.Enabled);
+    }
+
+    [Fact]
+    public async Task ProviderApiKeyIsProtectedAndCanBeKeptReplacedOrRemoved()
+    {
+        await using var context = CreateContext();
+        var protector = new DataProtectionProviderApiKeyProtector(new EphemeralDataProtectionProvider());
+        var service = new ProviderConfigurationService(context, protector);
+        var provider = new Provider
+        {
+            Name = "Azure stored key",
+            Type = ProviderType.AzureOpenAi,
+            BaseUrl = "https://azure.example/openai/v1",
+            AuthenticationType = AuthenticationType.AzureKeyCredential
+        };
+
+        await service.CreateAsync(provider, "  key-one-secret  ");
+        var stored = await context.Providers.SingleAsync();
+        Assert.Null(stored.CredentialId);
+        Assert.NotNull(stored.ProtectedApiKey);
+        Assert.DoesNotContain("key-one-secret", stored.ProtectedApiKey, StringComparison.Ordinal);
+        Assert.Equal("key-one-secret", new EnvironmentCredentialResolver(protector).Resolve(null, stored.ProtectedApiKey));
+
+        await service.UpdateAsync(new Provider
+        {
+            Id = stored.Id,
+            Name = stored.Name,
+            Type = stored.Type,
+            BaseUrl = stored.BaseUrl,
+            AuthenticationType = stored.AuthenticationType
+        }, null);
+        Assert.Equal(stored.ProtectedApiKey, (await context.Providers.SingleAsync()).ProtectedApiKey);
+
+        await service.UpdateAsync(new Provider
+        {
+            Id = stored.Id,
+            Name = stored.Name,
+            Type = stored.Type,
+            BaseUrl = stored.BaseUrl,
+            AuthenticationType = stored.AuthenticationType
+        }, "key-two-secret");
+        stored = await context.Providers.SingleAsync();
+        Assert.NotNull(stored.ProtectedApiKey);
+        Assert.DoesNotContain("key-two-secret", stored.ProtectedApiKey, StringComparison.Ordinal);
+        Assert.Equal("key-two-secret", new EnvironmentCredentialResolver(protector).Resolve(null, stored.ProtectedApiKey));
+
+        await service.UpdateAsync(new Provider
+        {
+            Id = stored.Id,
+            Name = stored.Name,
+            Type = stored.Type,
+            BaseUrl = stored.BaseUrl,
+            AuthenticationType = stored.AuthenticationType
+        }, null, removeStoredApiKey: true);
+        Assert.Null((await context.Providers.SingleAsync()).ProtectedApiKey);
+    }
+
+    [Fact]
+    public async Task Migrations_AddProtectedProviderApiKeyColumn()
+    {
+        var options = new DbContextOptionsBuilder<SubtitleTranslatorDbContext>()
+            .UseSqlite("Data Source=:memory:")
+            .Options;
+        await using var context = new SubtitleTranslatorDbContext(options);
+        await context.Database.OpenConnectionAsync();
+
+        await context.Database.MigrateAsync();
+        context.Providers.Add(new Provider
+        {
+            Name = "Migration check",
+            Type = ProviderType.AzureOpenAi,
+            BaseUrl = "https://azure.example/openai/v1",
+            AuthenticationType = AuthenticationType.AzureKeyCredential,
+            ProtectedApiKey = "protected-value"
+        });
+        await context.SaveChangesAsync();
+
+        Assert.Equal("protected-value", (await context.Providers.SingleAsync()).ProtectedApiKey);
+    }
+
+    [Fact]
+    public async Task AzureProviderRequiresHttpsAndSupportedApiKeyAuthentication()
+    {
+        await using var context = CreateContext();
+        var service = new ProviderConfigurationService(context);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(new Provider
+        {
+            Name = "Azure HTTP",
+            Type = ProviderType.AzureOpenAi,
+            BaseUrl = "http://azure.example",
+            AuthenticationType = AuthenticationType.ApiKey
+        }));
+        await Assert.ThrowsAsync<ArgumentException>(() => service.CreateAsync(new Provider
+        {
+            Name = "Azure Managed Identity",
+            Type = ProviderType.AzureOpenAi,
+            BaseUrl = "https://azure.example",
+            AuthenticationType = AuthenticationType.ManagedIdentity
+        }));
+
+        await service.CreateAsync(new Provider
+        {
+            Name = "Azure Key Credential",
+            Type = ProviderType.AzureOpenAi,
+            BaseUrl = "https://azure.example",
+            AuthenticationType = AuthenticationType.AzureKeyCredential
+        });
+        Assert.Single(context.Providers);
     }
 
     [Fact]
